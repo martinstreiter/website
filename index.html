@@ -15,14 +15,10 @@
       min-height: 100vh;
     }
 
-    /* ── Main page ── */
     #main {
-      display: none;
       min-height: 100vh;
       position: relative;
     }
-
-    #main.active { display: block; }
 
     .h-line {
       position: absolute;
@@ -30,15 +26,6 @@
       left: 6%;
       right: 6%;
       height: 1px;
-      background: #000;
-    }
-
-    .v-line {
-      position: absolute;
-      left: 32%;
-      top: 47%;
-      bottom: 36%;
-      width: 1px;
       background: #000;
     }
 
@@ -52,7 +39,7 @@
     .title {
       position: absolute;
       top: calc(55% - 1.4rem);
-      left: 34%;
+      right: 7%;
       white-space: nowrap;
     }
 
@@ -77,67 +64,12 @@
       text-decoration: none;
     }
 
-    /* ── Mobile layout ── */
-    #main-mobile {
-      display: none;
-      min-height: 100vh;
-      position: relative;
-      padding: 3rem 7% 5rem;
-    }
-
-    #main-mobile.active { display: block; }
-
-    .m-h-line {
-      position: absolute;
-      top: 50%;
-      left: 6%;
-      right: 6%;
-      height: 1px;
-      background: #000;
-    }
-
-    .m-v-line {
-      position: absolute;
-      left: 32%;
-      top: 44%;
-      bottom: 42%;
-      width: 1px;
-      background: #000;
-    }
-
-    .m-name {
-      position: absolute;
-      top: calc(50% - 1.4rem);
-      left: 7%;
-      white-space: nowrap;
-    }
-
-    .m-title {
-      position: absolute;
-      top: calc(50% + 0.6rem);
-      left: 7%;
-      white-space: nowrap;
-    }
-
-    .m-links {
-      position: absolute;
-      top: calc(50% + 0.6rem);
-      right: 7%;
-    }
-
-    .m-links a {
-      color: #000;
-      text-decoration: none;
-    }
-
-    .m-impressum-link {
-      position: absolute;
-      bottom: 2rem;
-      left: 7%;
-      color: #000;
-      opacity: 0.3;
-      cursor: pointer;
-      text-decoration: none;
+    /* ── Mobile ── */
+    @media (max-width: 599px) {
+      .title {
+        top: calc(55% + 0.6rem);
+        right: 7%;
+      }
     }
 
     /* ── Impressum ── */
@@ -146,8 +78,6 @@
       min-height: 100vh;
       padding: 4rem 7%;
     }
-
-    #impressum.active { display: block; }
 
     #impressum p { line-height: 2; }
 
@@ -163,10 +93,8 @@
 </head>
 <body>
 
-  <!-- Desktop layout -->
   <div id="main">
     <div class="h-line"></div>
-    <div class="v-line"></div>
     <div class="name">Dr. Martin Streiter</div>
     <div class="title">Product Specialist Photonics</div>
     <div class="links">
@@ -175,19 +103,6 @@
     <a class="impressum-link" onclick="show('impressum')">Impressum</a>
   </div>
 
-  <!-- Mobile layout -->
-  <div id="main-mobile">
-    <div class="m-h-line"></div>
-    <div class="m-v-line"></div>
-    <div class="m-name">Dr. Martin Streiter</div>
-    <div class="m-title">Product Specialist Photonics</div>
-    <div class="m-links">
-      <a href="https://www.linkedin.com/in/martin-streiter-82704a194" target="_blank">LinkedIn</a>
-    </div>
-    <a class="m-impressum-link" onclick="show('impressum')">Impressum</a>
-  </div>
-
-  <!-- Impressum -->
   <div id="impressum">
     <p>
       Dr. Martin Streiter<br>
@@ -202,34 +117,14 @@
       Dr. Martin Streiter<br>
       (Anschrift wie oben)
     </p>
-    <a class="back" onclick="show('impressum-back')">← Zurück</a>
+    <a class="back" onclick="show('main')">← Zurück</a>
   </div>
 
   <script>
-    var isMobile = window.innerWidth < 600;
-
     function show(id) {
-      document.getElementById('main').classList.remove('active');
-      document.getElementById('main-mobile').classList.remove('active');
-      document.getElementById('impressum').classList.remove('active');
-
-      if (id === 'impressum') {
-        document.getElementById('impressum').classList.add('active');
-      } else {
-        if (isMobile) {
-          document.getElementById('main-mobile').classList.add('active');
-        } else {
-          document.getElementById('main').classList.add('active');
-        }
-      }
+      document.getElementById('main').style.display = id === 'main' ? 'block' : 'none';
+      document.getElementById('impressum').style.display = id === 'impressum' ? 'block' : 'none';
     }
-
-    // Init
-    show('home');
-
-    window.addEventListener('resize', function() {
-      isMobile = window.innerWidth < 600;
-    });
   </script>
 
 </body>
