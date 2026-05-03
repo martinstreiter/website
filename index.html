@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dr. Martin Streiter</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #fff;
+      color: #000;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 0.72rem;
+      min-height: 100vh;
+    }
+
+    #main {
+      display: block;
+      min-height: 100vh;
+      position: relative;
+    }
+
+    .h-line {
+      position: absolute;
+      top: 55%;
+      left: 6%;
+      right: 6%;
+      height: 1px;
+      background: #000;
+    }
+
+    .v-line {
+      position: absolute;
+      left: 32%;
+      top: 47%;
+      bottom: 36%;
+      width: 1px;
+      background: #000;
+    }
+
+    .name {
+      position: absolute;
+      top: calc(55% - 1.4rem);
+      left: 7%;
+      white-space: nowrap;
+    }
+
+    .title {
+      position: absolute;
+      top: calc(55% - 1.4rem);
+      left: 34%;
+      white-space: nowrap;
+    }
+
+    .links {
+      position: absolute;
+      top: calc(55% + 0.6rem);
+      right: 7%;
+    }
+
+    .links a {
+      color: #000;
+      text-decoration: none;
+    }
+
+    .impressum-link {
+      position: absolute;
+      bottom: 2rem;
+      left: 7%;
+      color: #000;
+      opacity: 0.3;
+      cursor: pointer;
+      text-decoration: none;
+    }
+
+    #impressum {
+      display: none;
+      min-height: 100vh;
+      padding: 4rem 7%;
+    }
+
+    #impressum p {
+      line-height: 2;
+    }
+
+    .back {
+      display: inline-block;
+      margin-top: 3rem;
+      color: #000;
+      opacity: 0.4;
+      cursor: pointer;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="main">
+    <div class="h-line"></div>
+    <div class="v-line"></div>
+
+    <div class="name">Dr. Martin Streiter</div>
+    <div class="title">Product Specialist Photonics</div>
+
+    <div class="links">
+      <a href="https://www.linkedin.com/in/martin-streiter-82704a194" target="_blank">LinkedIn</a>
+    </div>
+
+    <a class="impressum-link" onclick="show('impressum')">Impressum</a>
+  </div>
+
+  <div id="impressum">
+    <p>
+      Dr. Martin Streiter<br>
+      Schillbachstr. 28<br>
+      07743 Jena<br>
+      Deutschland<br>
+      <br>
+      E-Mail: streitermartin@gmail.com<br>
+      <br>
+      Verantwortlich für den Inhalt<br>
+      gemäß § 55 Abs. 2 RStV:<br>
+      Dr. Martin Streiter<br>
+      (Anschrift wie oben)
+    </p>
+    <a class="back" onclick="show('main')">← Zurück</a>
+  </div>
+
+  <script>
+    function show(id) {
+      document.getElementById('main').style.display = id === 'main' ? 'block' : 'none';
+      document.getElementById('impressum').style.display = id === 'impressum' ? 'block' : 'none';
+    }
+  </script>
+
+</body>
+</html>
