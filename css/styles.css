@@ -1,0 +1,79 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #fff;
+  color: #000;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 0.72rem;
+  min-height: 100vh;
+}
+
+#main {
+  min-height: 100vh;
+  position: relative;
+}
+
+.h-line {
+  position: absolute;
+  top: 55%;
+  left: 6%;
+  right: 6%;
+  height: 1px;
+  background: #000;
+}
+
+.name {
+  position: absolute;
+  top: calc(55% - 1.4rem);
+  left: 7%;
+  white-space: nowrap;
+}
+
+.title {
+  position: absolute;
+  top: calc(55% - 1.4rem);
+  right: 7%;
+  white-space: nowrap;
+}
+
+.links {
+  position: absolute;
+  top: calc(55% + 0.6rem);
+  right: 7%;
+}
+
+.links a {
+  color: #000;
+  text-decoration: none;
+}
+
+.impressum-link {
+  position: absolute;
+  bottom: 2rem;
+  left: 7%;
+  color: #000;
+  opacity: 0.3;
+  text-decoration: none;
+}
+
+@media (max-width: 599px) {
+  .title {
+    top: calc(55% + 0.6rem);
+    right: 7%;
+  }
+}
+
+.impressum {
+  min-height: 100vh;
+  padding: 4rem 7%;
+}
+
+.impressum p { line-height: 2; }
+
+.back {
+  display: inline-block;
+  margin-top: 3rem;
+  color: #000;
+  opacity: 0.4;
+  text-decoration: none;
+}
