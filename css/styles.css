@@ -200,3 +200,5 @@ body {
 }
 
 .instruments button[aria-pressed="true"] { background: #000; color: #fff; }
+
+.name { line-height: 1.6; }

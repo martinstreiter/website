@@ -1,4 +1,4 @@
-// Holzblas-Snake: ein Holzblasinstrument frisst sein Lieblingsfutter und wächst.
+// Holzblasinstrumentensnake: ein Holzblasinstrument frisst sein Lieblingsfutter und wächst.
 (() => {
   const N = 17; // Felder pro Seite
 

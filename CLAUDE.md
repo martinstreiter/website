@@ -7,7 +7,7 @@ Statische Website, gehostet über GitHub Pages aus dem Repo
 
 - `index.html` – Startseite (Name, Titel, Links)
 - `impressum.html` – Impressum
-- `snake.html` + `js/snake.js` – Minispiel „Holzblas-Snake“ (Canvas, Wischen/Pfeiltasten;
+- `snake.html` + `js/snake.js` – Minispiel „Holzblasinstrumentensnake“ (Canvas, Wischen/Pfeiltasten;
   Instrumente Querflöte, Oboe, Klarinette, Fagott mit je eigenem Futter),
   verlinkt unter den Konzertterminen
 - `css/styles.css` – gemeinsames Stylesheet für alle Seiten
