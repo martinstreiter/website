@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Flöten-Snake – Dr. Martin Streiter</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <main class="game-page">
+    <a class="back" href="index.html">← Zurück</a>
+
+    <h1>Flöten-Snake</h1>
+    <p class="game-info">Die Querflöte frisst Noten. Je länger der Notenwert, desto mehr wächst sie.</p>
+
+    <div class="score">
+      <span>Punkte <b id="score">0</b></span>
+      <span>Rekord <b id="best">0</b></span>
+    </div>
+
+    <div class="game" id="game">
+      <canvas id="board" aria-label="Spielfeld"></canvas>
+    </div>
+
+    <div class="pad">
+      <button class="up" data-dir="up" aria-label="Hoch">↑</button>
+      <button class="left" data-dir="left" aria-label="Links">←</button>
+      <button class="mid" id="pause" aria-label="Start / Pause">▶</button>
+      <button class="right" data-dir="right" aria-label="Rechts">→</button>
+      <button class="down" data-dir="down" aria-label="Runter">↓</button>
+    </div>
+
+    <ul class="legend" id="legend"></ul>
+  </main>
+
+  <a class="impressum-link" href="impressum.html">Impressum</a>
+
+  <script src="js/snake.js"></script>
+</body>
+</html>
