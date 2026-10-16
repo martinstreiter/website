@@ -179,3 +179,24 @@ body {
   align-items: center;
   gap: 0.2rem;
 }
+
+.instruments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 1.2rem;
+}
+
+.instruments button {
+  font: inherit;
+  color: #000;
+  background: #fff;
+  border: 1px solid #000;
+  border-radius: 0;
+  padding: 0.55rem 0.7rem;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.instruments button[aria-pressed="true"] { background: #000; color: #fff; }
