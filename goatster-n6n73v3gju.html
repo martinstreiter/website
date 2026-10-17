@@ -2,17 +2,30 @@
 <html lang="de">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <title>Goatster</title>
 <meta name="robots" content="noindex, nofollow">
 <meta name="description" content="Goatster – ein 3D-Fahrspiel mit Pressluftdüsen, Looping und Zeitrennen.">
 <link rel="stylesheet" href="css/styles.css">
 <style>
-  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; touch-action: none; overscroll-behavior: none;
+               -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
   canvas { display: block; }
   #hud { position: fixed; inset: 0; pointer-events: none; outline: none; }
+  /* Bildschirmknöpfe fürs Smartphone */
+  #touch { position: fixed; inset: 0; pointer-events: none; display: none; z-index: 4; }
+  body.touch #touch { display: block; }
+  #touch button { pointer-events: auto; position: absolute; width: var(--s); height: var(--s); border-radius: 50%;
+                  border: 1.5px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.85);
+                  font: 600 11px/1 -apple-system, sans-serif; letter-spacing: 0.12em; padding: 0;
+                  touch-action: none; -webkit-tap-highlight-color: transparent; }
+  #touch button.on { background: rgba(102,204,255,0.35); border-color: #6cf; }
+  #touch .wide { border-radius: 14px; width: auto; height: auto; padding: 12px 22px; font-size: 13px; }
+  #touch .hidden { display: none; }
   .game-impressum { position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%); z-index: 5;
                     color: rgba(255,255,255,0.4); font: 11px/1 -apple-system, sans-serif; letter-spacing: 0.1em; }
+  body.touch .game-impressum { bottom: auto; top: 8px; }
   #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
              color: #fff; font: 14px/1.4 -apple-system, sans-serif; letter-spacing: 0.3em; }
 </style>
@@ -25,6 +38,18 @@
 </head>
 <body>
 <div id="loading">LÄDT …</div>
+<div id="touch">
+  <button data-key="ArrowLeft"  style="--s:84px; left:calc(18px + env(safe-area-inset-left)); bottom:22px">◀</button>
+  <button data-key="ArrowRight" style="--s:84px; left:calc(116px + env(safe-area-inset-left)); bottom:22px">▶</button>
+  <button data-key="ShiftLeft"  style="--s:66px; left:calc(18px + env(safe-area-inset-left)); bottom:124px">SAUGEN</button>
+  <button data-key="ArrowUp"    style="--s:96px; right:calc(18px + env(safe-area-inset-right)); bottom:22px">GAS</button>
+  <button data-key="ArrowDown"  style="--s:66px; right:calc(126px + env(safe-area-inset-right)); bottom:22px">BREMSE</button>
+  <button data-key="Space"      style="--s:78px; right:calc(18px + env(safe-area-inset-right)); bottom:132px">SPRUNG</button>
+  <button data-key="KeyK"       style="--s:58px; right:calc(110px + env(safe-area-inset-right)); bottom:112px">FLIP</button>
+  <button data-key="Enter" id="startButton" class="wide" style="left:50%; top:62%; transform:translateX(-50%)">START</button>
+  <button data-key="KeyR" class="wide" style="left:calc(50% - 96px); bottom:14px; padding:8px 14px; font-size:10px">RESET</button>
+  <button data-action="fullscreen" class="wide" style="left:calc(50% + 8px); bottom:14px; padding:8px 14px; font-size:10px">VOLLBILD</button>
+</div>
 <canvas id="hud" tabindex="0"></canvas>
 <a class="game-impressum" href="impressum.html">Impressum</a>
 <script type="module">
@@ -42,6 +67,8 @@ const X = V(1, 0, 0), Y = V(0, 1, 0), Z = V(0, 0, 1);
 const qAxis = (axis, angle) => new THREE.Quaternion().setFromAxisAngle(axis, angle);
 const clamp = (x, a, b) => Math.min(Math.max(x, a), b);
 const DEG = Math.PI / 180;
+// Smartphone / Tablet mit Touchscreen?
+const IS_TOUCH = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
 // Farbe aus sRGB-Werten (wie auf dem Bildschirm) in Three.js' linearen Farbraum
 const rgb = (r, g, b) => new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace);
 const grey = (w) => rgb(w, w, w);
@@ -501,9 +528,12 @@ class CarModel {
 // =====================================================================
 class Track {
   // supports: Stützen ja/nein; slantedSupports: schräge Streben bei Steilstücken; edgeColor: Farbe der Leuchtränder
+  // sky: schwebende Bahn (blau, ohne Stützen); rails: Leitplanken auf flachen Bodenstücken
   constructor(start, heading, pieces, { closed = false, correctionPiece = null, supports = true,
-                                        slantedSupports = true, edgeColor = rgb(1, 0.12, 0.08) } = {}) {
-    this.closed = closed; this.halfWidth = 6; this.spacing = 1; this.edgeColor = edgeColor;
+                                        slantedSupports = true, sky = false, rails = true } = {}) {
+    this.closed = closed; this.halfWidth = 6; this.spacing = 1; this.sky = sky; this.rails = rails && !sky;
+    this.edgeColor = sky ? rgb(0.2, 0.75, 1) : rgb(1, 0.12, 0.08);
+    if (sky) supports = false;
     const hw = this.halfWidth;
     let pos = start.clone();
     const q = qAxis(Y, heading);
@@ -562,6 +592,13 @@ class Track {
   }
 
   get length() { return (this.closed ? this.samples.length : this.samples.length - 1) * this.spacing; }
+
+  // Ende der Bahn: Position und waagerechte Fahrtrichtung (um den nächsten Abschnitt anzuschließen)
+  end() {
+    const f = this.frame(this.length);
+    const dir = V(f.t.x, 0, f.t.z).normalize();
+    return { p: f.p, dir, heading: Math.atan2(-dir.x, -dir.z) };
+  }
 
   frame(s) {
     const n = this.samples.length;
@@ -652,6 +689,18 @@ class Track {
       mesh.receiveShadow = receive;
       group.add(mesh);
     }
+    // Leitplanken auf flachen Bodenstücken (innen und außen, damit man von beiden Seiten etwas sieht)
+    if (this.rails) {
+      const rail = Mat.pbr(grey(0.7), { metal: 0.8, rough: 0.35 });
+      rail.side = THREE.DoubleSide;
+      const railTop = Mat.glow(this.edgeColor, 1.4);
+      const onGround = f => f.groundLevel;
+      for (const side of [-1, 1]) {
+        const d = side * (hw - 0.05);
+        group.add(new THREE.Mesh(this.strip([d, 0], [d, 0.7], onGround), rail));
+        group.add(new THREE.Mesh(this.strip([d - 0.06 * side, 0.7], [d + 0.06 * side, 0.7], onGround), railTop));
+      }
+    }
     if (this.supportBeams.length) {
       const steel = Mat.pbr(grey(0.55), { metal: 1, rough: 0.4 });
       const inst = new THREE.InstancedMesh(unitCylinder, steel, this.supportBeams.length);
@@ -661,7 +710,8 @@ class Track {
     return group;
   }
 
-  strip(a, b) {
+  // filter: nur Stücke zeichnen, deren beide Stützpunkte die Bedingung erfüllen
+  strip(a, b, filter = null) {
     const pos = [], nor = [], uv = [], idx = [];
     const n = this.samples.length;
     const rows = this.closed ? n + 1 : n;
@@ -677,6 +727,7 @@ class Track {
       uv.push((a[0] + this.halfWidth) / 10, v, (b[0] + this.halfWidth) / 10, v);
     }
     for (let i = 0; i < rows - 1; i++) {
+      if (filter && !(filter(this.samples[i % n]) && filter(this.samples[(i + 1) % n]))) continue;
       const a0 = 2 * i, b0 = a0 + 1, a1 = a0 + 2, b1 = a0 + 3;
       idx.push(a0, b0, a1, b0, b1, a1);
     }
@@ -694,18 +745,19 @@ class Track {
 // =====================================================================
 class Obstacle {
   // circles: [[x, z], …]
-  constructor(circles, radius, height) {
-    this.circles = circles; this.radius = radius; this.height = height;
+  // base: Höhe, auf der das Hindernis steht (z. B. auf einer Himmelsbahn)
+  constructor(circles, radius, height, base = 0) {
+    this.circles = circles; this.radius = radius; this.height = height; this.base = base;
     const cx = circles.reduce((s, c) => s + c[0], 0) / circles.length;
     const cz = circles.reduce((s, c) => s + c[1], 0) / circles.length;
     this.center = [cx, cz];
     this.reach = Math.max(...circles.map(c => Math.hypot(c[0] - cx, c[1] - cz))) + radius;
   }
-  static car(x, z, yaw, kind) {
+  static car(x, z, yaw, kind, base = 0) {
     const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
     const o = (kind.halfLength - kind.radius);
     const circles = [-1, 0, 1].map(k => [x + fx * o * k, z + fz * o * k]);
-    return new Obstacle(circles, kind.radius, kind.height);
+    return new Obstacle(circles, kind.radius, kind.height, base);
   }
 }
 
@@ -803,9 +855,9 @@ function saveNumber(key, v) { try { localStorage.setItem(key, String(v)); } catc
 
 class Race {
   constructor() {
-    this.laps = 3; this.crashPenalty = 3; this.checkpoints = [];
+    this.laps = 3; this.penalty = 3; this.checkpoints = [];   // { name, track, s }
     this.phase = 'ready'; this.countdown = 0; this.raceTime = 0; this.lap = 1; this.nextCheckpoint = 0;
-    this.lapTimes = []; this.lapStart = 0; this.missingWarned = false;
+    this.lapTimes = []; this.lapStart = 0; this.lastCheckpoint = null;
     this.bestTotal = loadNumber('goatster.bestRaceTime');
     this.bestLap = loadNumber('goatster.bestLapTime');
     this.newRecord = false; this.message = ''; this.messageAge = 99;
@@ -813,11 +865,13 @@ class Race {
   get controlsLocked() { return this.phase === 'countdown'; }
   get currentLapTime() { return this.raceTime - this.lapStart; }
   get nextTarget() { return this.nextCheckpoint < this.checkpoints.length ? this.checkpoints[this.nextCheckpoint].name : 'ZIEL'; }
+  // hier wird man nach einem Absturz wieder hingesetzt
+  get respawnPoint() { return this.lastCheckpoint ?? { track: 0, s: 3 }; }
   show(text) { this.message = text; this.messageAge = 0; }
 
   start() {
     Object.assign(this, { phase: 'countdown', countdown: 3, raceTime: 0, lap: 1, nextCheckpoint: 0,
-                          lapTimes: [], lapStart: 0, newRecord: false });
+                          lapTimes: [], lapStart: 0, newRecord: false, lastCheckpoint: null });
     this.show('');
   }
 
@@ -831,32 +885,31 @@ class Race {
     }
   }
 
-  moved(previousS, s, trackLength) {
+  // Auto ist auf Bahn trackIndex an Position s
+  progress(trackIndex, s) {
     if (this.phase !== 'running') return;
     if (this.nextCheckpoint < this.checkpoints.length) {
       const cp = this.checkpoints[this.nextCheckpoint];
-      if (previousS < cp.s && s >= cp.s && s - previousS < 20) {
+      if (trackIndex === cp.track && s >= cp.s) {
         this.nextCheckpoint++;
+        this.lastCheckpoint = cp;
         this.show('CHECKPOINT ' + cp.name);
       }
+    } else if (trackIndex === 0 && s < 40) {
+      this.completeLap();   // zurück an der Start-Ziel-Linie
     }
-    const crossedLine = previousS > trackLength - 40 && s < 40;
-    if (!crossedLine) {
-      if (s > 40 && s < trackLength - 40) this.missingWarned = false;
-      return;
-    }
-    if (this.nextCheckpoint < this.checkpoints.length) {
-      if (!this.missingWarned) this.show('CHECKPOINT FEHLT: ' + this.nextTarget);
-      this.missingWarned = true;
-      return;
-    }
-    this.completeLap();
   }
 
   crash() {
     if (this.phase !== 'running') return;
-    this.raceTime += this.crashPenalty;
+    this.raceTime += this.penalty;
     this.show('CRASH  +3 S');
+  }
+
+  fall() {
+    if (this.phase !== 'running') return;
+    this.raceTime += this.penalty;
+    this.show('ABSTURZ  +3 S');
   }
 
   completeLap() {
@@ -868,6 +921,7 @@ class Race {
       text += '  BESTE RUNDE!';
     }
     this.show(text);
+    this.lastCheckpoint = null;
     if (this.lap === this.laps) {
       this.phase = 'finished';
       if (this.bestTotal === 0 || this.raceTime < this.bestTotal) {
@@ -1011,7 +1065,7 @@ class HUD {
     ctx.fillRect(x0 - 8, y0 - 8, size + 16, size + 16);
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     map.tracks.forEach((t, i) => {
-      ctx.strokeStyle = i >= 2 ? 'rgba(80,190,255,0.8)' : 'rgba(255,255,255,0.55)';
+      ctx.strokeStyle = t.sky ? 'rgba(80,190,255,0.8)' : 'rgba(255,255,255,0.55)';
       ctx.lineWidth = 2;
       ctx.beginPath();
       t.samples.forEach((smp, j) => (j ? ctx.lineTo : ctx.moveTo).call(ctx, px(smp.p.x), pz(smp.p.z)));
@@ -1045,37 +1099,51 @@ class HUD {
     T('GOATSTER', 44, 80, 28, 5.5, 2.0);
     T('BESTZEIT  ' + (s.bestTotal > 0 ? formatTime(s.bestTotal) : '-:--,--'), w - 44, 58, 11, 3.5, 1.3, 'right', dim);
     T('BESTE RUNDE  ' + (s.bestLap > 0 ? formatTime(s.bestLap) : '-:--,--'), w - 44, 82, 11, 3.5, 1.3, 'right', dim);
-    this.drawMap(w - 44 - 170, h - 130 - 170, 170, s.car);
-    T(String(s.kmh), w - 44, h - 72, 54, 2.2, 3.6, 'right');
-    T('KM/H', w - 44, h - 40, 12, 4, 1.4, 'right', dim);
-    const help = ['W/↑ GAS    S/↓ BREMSE    A D/← → LENKEN',
-                  'LEERTASTE DÜSENSPRUNG, HALTEN = FLIEGEN    K KICKFLIP    BLAUE BAHNEN NUR FLIEGEND',
-                  '⇧ HALTEN = FESTSAUGEN    R RESET    ENTER RENNEN    F VOLLBILD'];
-    help.forEach((line, i) => T(line, 44, h - 76 + i * 22, 10, 3, 1.2, 'left', dim));
+    if (IS_TOUCH) {
+      // Smartphone: Knöpfe unten, deshalb Karte und Tempo nach oben
+      this.drawMap(44, 150, 120, s.car);
+      T(String(s.kmh), w - 44, 140, 34, 2.2, 2.6, 'right');
+      T('KM/H', w - 44, 160, 10, 4, 1.2, 'right', dim);
+      if (h > w) T('BITTE QUERFORMAT', w / 2, h / 2 + 150, 16, 4, 1.8, 'center', cyan);
+    } else {
+      this.drawMap(w - 44 - 170, h - 130 - 170, 170, s.car);
+      T(String(s.kmh), w - 44, h - 72, 54, 2.2, 3.6, 'right');
+      T('KM/H', w - 44, h - 40, 12, 4, 1.4, 'right', dim);
+      const help = ['W/↑ GAS    S/↓ BREMSE    A D/← → LENKEN',
+                    'LEERTASTE DÜSENSPRUNG, HALTEN = FLIEGEN    K KICKFLIP',
+                    '⇧ HALTEN = FESTSAUGEN    R ZUM CHECKPOINT    ENTER RENNEN    F VOLLBILD'];
+      help.forEach((line, i) => T(line, 44, h - 76 + i * 22, 10, 3, 1.2, 'left', dim));
+    }
+    const startKey = IS_TOUCH ? 'START TIPPEN' : 'ENTER';
 
     if (s.phase === 'countdown' || s.phase === 'running' || s.phase === 'finished') T(formatTime(s.raceTime), w / 2, 76, 34, 2.4, 2.8, 'center');
     let lapLine = '';
     if (s.phase === 'countdown' || s.phase === 'running') lapLine = `RUNDE ${s.lap}/${s.laps}    NÄCHSTES ZIEL: ${s.nextTarget}`;
-    else if (s.overlayHidden) lapLine = s.phase === 'ready' ? 'ENTER = ZEITRENNEN STARTEN' : 'ENTER = NEUES RENNEN';
+    else if (s.overlayHidden) lapLine = s.phase === 'ready' ? startKey + ' = ZEITRENNEN STARTEN' : startKey + ' = NEUES RENNEN';
     T(lapLine, w / 2, 104, 11, 3.5, 1.3, 'center', dim);
 
     let big = '', lines = [];
-    if (s.phase === 'ready') { big = 'ZEITRENNEN'; lines = ['3 RUNDEN - LOOPING, STEILWAND, HAARNADEL', 'CRASH = +3 SEKUNDEN', 'ENTER = START']; }
+    if (s.phase === 'ready') {
+      big = 'ZEITRENNEN';
+      lines = ['3 RUNDEN - ÜBER DIE LÜCKEN MUSST DU FLIEGEN', 'ABSTURZ ODER CRASH = +3 SEKUNDEN', IS_TOUCH ? 'START TIPPEN' : 'ENTER = START'];
+    }
     else if (s.phase === 'countdown') big = String(Math.ceil(s.countdown));
     else if (s.phase === 'finished') {
       big = 'ZIEL!';
       lines = [s.newRecord ? 'NEUER REKORD!' : 'BESTZEIT ' + formatTime(s.bestTotal),
-               'RUNDEN  ' + s.lapTimes.map(formatTime).join('   '), 'ENTER = NEUES RENNEN'];
+               'RUNDEN  ' + s.lapTimes.map(formatTime).join('   '), startKey + ' = NEUES RENNEN'];
     }
     if (s.overlayHidden && s.phase !== 'countdown') { big = ''; lines = []; }
-    T(big, w / 2, h / 2 - 40, 64, 4, 4.5, 'center');
+    T(big, w / 2, h / 2 - 40, IS_TOUCH ? 48 : 64, 4, 4.5, 'center');
     lines.forEach((line, i) => T(line, w / 2, h / 2 + 20 + i * 34, 16, 4, 1.8, 'center', i === 0 && s.newRecord && s.phase === 'finished' ? cyan : '#fff'));
 
     if (s.messageAge < 2.5) {
-      const bad = s.message.startsWith('CRASH') || s.message.startsWith('CHECKPOINT FEHLT');
+      const bad = s.message.startsWith('CRASH') || s.message.startsWith('ABSTURZ');
       T(s.message, w / 2, 160, 20, 4, 2.2, 'center', bad ? red : '#fff', clamp((2.5 - s.messageAge) * 2, 0, 1));
     }
-    if (!document.hasFocus()) T('INS BILD KLICKEN, DAMIT DIE TASTATUR WIRKT', w / 2, h / 2 + 140, 14, 4, 1.6, 'center', cyan);
+    if (s.gapAhead) T(IS_TOUCH ? 'LÜCKE VORAUS: SPRUNG DRÜCKEN UND HALTEN' : 'LÜCKE VORAUS: SPRINGEN + LEERTASTE HALTEN',
+                      w / 2, 236, 15, 4, 1.8, 'center', cyan);
+    if (!IS_TOUCH && !document.hasFocus()) T('INS BILD KLICKEN, DAMIT DIE TASTATUR WIRKT', w / 2, h / 2 + 140, 14, 4, 1.6, 'center', cyan);
     if (s.warning && !s.suction) {
       if (Math.floor(performance.now() / 250) % 2 === 0) T('⇧ FESTSAUGEN!', w / 2, 200, 16, 4, 1.9, 'center', red);
     } else if (s.suction) {
@@ -1100,6 +1168,29 @@ function toggleFullscreen() {
       .catch(() => {});
   }
 }
+// Bildschirmknöpfe mit mehreren Fingern gleichzeitig bedienen
+function setupTouchButtons(input) {
+  if (!IS_TOUCH) return;
+  document.body.classList.add('touch');
+  document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+  for (const button of document.querySelectorAll('#touch button')) {
+    const code = button.dataset.key;
+    const down = (e) => {
+      e.preventDefault();
+      try { button.setPointerCapture(e.pointerId); } catch {}   // Finger bleibt dem Knopf zugeordnet, auch wenn er verrutscht
+      button.classList.add('on');
+      if (button.dataset.action === 'fullscreen') toggleFullscreen();
+      else input.press(code);
+    };
+    const up = () => { button.classList.remove('on'); if (code) input.release(code); };
+    button.addEventListener('pointerdown', down);
+    button.addEventListener('pointerup', up);
+    button.addEventListener('pointercancel', up);
+    button.addEventListener('lostpointercapture', up);
+    button.addEventListener('contextmenu', e => e.preventDefault());
+  }
+}
+
 class Input {
   constructor() {
     this.held = new Set(); this.pressed = new Set();
@@ -1118,6 +1209,9 @@ class Input {
     window.addEventListener('keyup', e => this.held.delete(e.code));
     window.addEventListener('blur', () => { this.held.clear(); this.pressed.clear(); });
   }
+  // für die Bildschirmknöpfe
+  press(code) { if (!this.held.has(code)) this.pressed.add(code); this.held.add(code); }
+  release(code) { this.held.delete(code); }
   isDown(...codes) { return codes.some(c => this.held.has(c)); }
   wasPressed(code) { const had = this.pressed.has(code); this.pressed.delete(code); return had; }
 }
@@ -1130,12 +1224,12 @@ class Game {
     // Physik (Meter und Sekunden) – gleiche Werte wie in der Mac-Version
     Object.assign(this, {
       gravity: 22, maxSpeed: 112, launchAcceleration: 30, brakeDeceleration: 45,
-      jumpSpeed: 11, flipJumpSpeed: 13, flipDuration: 0.9, hoverThrust: 30,
+      jumpSpeed: 11, flipJumpSpeed: 13, flipDuration: 0.9, hoverThrust: 34,
       suctionStrength: 40, centerHeight: 0.6, worldLimit: 1900
     });
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, IS_TOUCH ? 1.5 : 2));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.0;
@@ -1152,6 +1246,7 @@ class Game {
     this.composer.addPass(new OutputPass());
 
     this.input = new Input();
+    setupTouchButtons(this.input);
     this.hud = new HUD(document.getElementById('hud'));
     this.race = new Race();
     this.particles = new Particles(this.scene);
@@ -1240,7 +1335,7 @@ class Game {
     this.scene.add(new THREE.AmbientLight(rgb(0.6, 0.7, 1), 0.12));
     const moon = new THREE.DirectionalLight(rgb(0.85, 0.9, 1), 1.6);
     moon.castShadow = true;
-    moon.shadow.mapSize.set(2048, 2048);
+    moon.shadow.mapSize.set(IS_TOUCH ? 1024 : 2048, IS_TOUCH ? 1024 : 2048);
     Object.assign(moon.shadow.camera, { left: -14, right: 14, top: 14, bottom: -14, near: 1, far: 160 });
     moon.shadow.bias = -0.0004;
     moon.shadow.normalBias = 0.03;
@@ -1250,47 +1345,67 @@ class Game {
 
   buildTracks() {
     const base = 0.06;
-    // großer Rundkurs: lange Gerade, Looping, lange Steilkurve mit Überhang, Gegengerade, Haarnadel
-    const wall = 280, loopRadius = 18, loopShift = 18;
-    const hairpinRadius = (2 * wall / Math.PI - loopShift) / 2;
-    const circuit = new Track(V(0, base, 0), 0, [
-      { length: 300 },                                                  // 0 Start-Ziel-Gerade
-      { length: 2 * Math.PI * loopRadius, pitch: 360, shift: loopShift }, // 1 Looping
-      { length: 250 },                                                  // 2
-      { length: 60, yaw: 180 * 60 / wall, bankTo: 90 },                 // 3 Steilwand senkrecht …
-      { length: 80, yaw: 180 * 80 / wall, bankTo: 115 },                // 4 … mit Überhang
-      { length: 80, yaw: 180 * 80 / wall, bankTo: 90 },                 // 5
-      { length: 60, yaw: 180 * 60 / wall, bankTo: 0 },                  // 6
-      { length: 550 },                                                  // 7 Gegengerade
-      { length: Math.PI * hairpinRadius / 2, yaw: 90, bankTo: 15 },     // 8 Haarnadel
-      { length: Math.PI * hairpinRadius / 2, yaw: 90, bankTo: 0 }       // 9
-    ], { closed: true, correctionPiece: 7, slantedSupports: false });
-    const tower = new Track(V(150, base, 80), 0, [{ length: 90 }, { length: 18 * 2.1, pitch: 120 }]);
+    // Abschnitt 1 – Bodenbahn: Start-Ziel-Gerade, Looping, Steilwand mit Überhang, Schanze
+    const wall = 280;
+    const ground1 = new Track(V(0, base, 0), 0, [
+      { length: 250 },                                              // 0 Start-Ziel-Gerade
+      { length: 2 * Math.PI * 18, pitch: 360, shift: 18 },          // 1 Looping
+      { length: 150 },                                              // 2
+      { length: 60, yaw: 180 * 60 / wall, bankTo: 90 },             // 3 Steilwand …
+      { length: 80, yaw: 180 * 80 / wall, bankTo: 115 },            // 4 … mit Überhang
+      { length: 80, yaw: 180 * 80 / wall, bankTo: 90 },             // 5
+      { length: 60, yaw: 180 * 60 / wall, bankTo: 0 },              // 6
+      { length: 100 },                                              // 7
+      { length: 50, pitch: 25 }                                     // 8 Schanze
+    ], { slantedSupports: false });
 
-    // Himmelsbahnen: schweben ohne Stützen in der Luft, nur fliegend erreichbar (Leertaste halten)
-    const sky = { supports: false, edgeColor: rgb(0.2, 0.75, 1) };
-    const skyRing = new Track(V(-40, 30, -175), 0, [
-      { length: 200 },
-      { length: Math.PI * 35 / 2, yaw: 90, bankTo: 25 }, { length: Math.PI * 35 / 2, yaw: 90, bankTo: 0 },
-      { length: 200 },
-      { length: Math.PI * 35 / 2, yaw: 90, bankTo: 25 }, { length: Math.PI * 35 / 2, yaw: 90, bankTo: 0 }
-    ], { ...sky, closed: true, correctionPiece: 3 });
-    const skyRun = new Track(V(300, 45, 300), 0, [
-      { length: 150 },
-      { length: Math.PI * 40 / 4, yaw: 45, bankTo: 20 }, { length: Math.PI * 40 / 4, yaw: 45, bankTo: 0 },
-      { length: 100 },
-      { length: 25, pitch: 18 }                                          // Schanze am Ende
-    ], sky);
-    const skyLoop = new Track(V(-350, 50, -250), 0, [
-      { length: 80 }, { length: 2 * Math.PI * 16, pitch: 360, shift: 14 }, { length: 80 }
-    ], sky);
+    // jeder weitere Abschnitt beginnt nach einer Lücke, die man fliegend überwinden muss
+    const after = (track, gap, height) => {
+      const e = track.end();
+      const p = e.p.clone().addScaledVector(e.dir, gap);
+      p.y = height;
+      return { p, heading: e.heading };
+    };
 
-    this.tracks = [circuit, tower, skyRing, skyRun, skyLoop];
+    // Abschnitt 2 – Himmelsbahn in 22 m Höhe
+    const a2 = after(ground1, 90, 22);
+    const sky1 = new Track(a2.p, a2.heading, [
+      { length: 400 },
+      { length: Math.PI * 70 / 2, yaw: 90, bankTo: 30 }, { length: Math.PI * 70 / 2, yaw: 90, bankTo: 0 },
+      { length: 200 }
+    ], { sky: true });
+
+    // Abschnitt 3 – Höhenbahn in 37 m Höhe: höher als die Himmelsbahn, also hochfliegen
+    const a3 = after(sky1, 90, 37);
+    const sky2 = new Track(a3.p, a3.heading, [
+      { length: 150 },                                              // Landezone
+      { length: 2 * Math.PI * 16, pitch: 360, shift: 14 },          // Looping in der Luft
+      { length: 120 },
+      { length: Math.PI * 50 / 2, yaw: -90, bankTo: -25 }, { length: Math.PI * 50 / 2, yaw: -90, bankTo: 0 },
+      { length: 100 }
+    ], { sky: true });
+
+    // Abschnitt 4 – Landebahn: herunterfliegen, Haarnadel, zurück zur Start-Ziel-Linie
+    const a4 = after(sky2, 50, base);
+    const radius = Math.max(30, a4.p.x / 2);
+    const turnZ = Math.max(a4.p.z, 0) + 80;
+    const ground2 = new Track(a4.p, a4.heading, [
+      { length: turnZ - a4.p.z },
+      { length: Math.PI * radius / 2, yaw: -90, bankTo: -10 }, { length: Math.PI * radius / 2, yaw: -90, bankTo: 0 },
+      { length: turnZ + 2 }                                         // endet knapp hinter der Startlinie
+    ]);
+
+    // frei befahrbarer Steilwand-Turm abseits der Strecke
+    const tower = new Track(V(220, base, 80), 0, [{ length: 90 }, { length: 18 * 2.1, pitch: 120 }]);
+
+    this.tracks = [ground1, sky1, sky2, ground2, tower];
     for (const t of this.tracks) this.obstacles.push(...t.supportObstacles());
     this.race.checkpoints = [
-      { name: 'LOOPING', s: circuit.pieceStarts[2] },
-      { name: 'STEILWAND', s: circuit.pieceStarts[7] },
-      { name: 'HAARNADEL', s: circuit.pieceStarts[9] + 20 }
+      { name: 'LOOPING', track: 0, s: ground1.pieceStarts[2] },
+      { name: 'STEILWAND', track: 0, s: ground1.pieceStarts[7] },
+      { name: 'HIMMELSBAHN', track: 1, s: 0 },
+      { name: 'HÖHENBAHN', track: 2, s: 0 },
+      { name: 'LANDUNG', track: 3, s: 0 }
     ];
 
     const rng = seededRandom(7);
@@ -1311,21 +1426,22 @@ class Game {
   placeParkedCars() {
     const rng = seededRandom(42);
     const kinds = [0, 1, 2, 3, 4, 'truck', 'truck'];
-    const place = (kindId, x, z, yaw) => {
+    const place = (kindId, x, z, yaw, y = 0.06) => {
       const kind = kindId === 'truck' ? KINDS.truck : KINDS.sedan;
       const node = ParkedCars.node(kind, kindId === 'truck' ? 0 : kindId);
-      node.position.set(x, 0.06, z);
+      node.position.set(x, y, z);
       node.rotation.y = yaw;
       this.scene.add(node);
-      this.obstacles.push(Obstacle.car(x, z, yaw, kind));
+      this.obstacles.push(Obstacle.car(x, z, yaw, kind, y));
     };
-    const circuit = this.tracks[0];
-    const spots = [[0, 150, -3], [0, 240, 3], [2, 90, 2.5], [2, 170, -2.5], [7, 80, 3], [7, 180, -3],
-                   [7, 280, 0.5], [7, 380, 3.5], [7, 470, -3], [7, 520, 2]];
-    spots.forEach(([piece, offset, d], i) => {
-      const f = circuit.frame(circuit.pieceStarts[piece] + offset);
+    // [Bahn, Stück, Abstand ab Stückanfang, seitlich]
+    const spots = [[0, 0, 150, -3], [0, 2, 80, 2.5], [0, 7, 40, -2], [1, 0, 300, 2.5], [1, 0, 370, -3],
+                   [1, 3, 100, 2], [2, 2, 60, -2.5], [2, 0, 120, 2.5], [3, 0, 90, 3], [3, 3, 50, -3]];
+    spots.forEach(([track, piece, offset, d], i) => {
+      const t = this.tracks[track];
+      const f = t.frame(t.pieceStarts[piece] + offset);
       const p = f.p.clone().addScaledVector(f.r, d);
-      place(kinds[i % kinds.length], p.x, p.z, Math.atan2(-f.t.x, -f.t.z) + rnd(rng, -0.4, 0.4));
+      place(kinds[i % kinds.length], p.x, p.z, Math.atan2(-f.t.x, -f.t.z) + rnd(rng, -0.4, 0.4), p.y);
     });
     let placed = 0;
     while (placed < 35) {
@@ -1368,6 +1484,9 @@ class Game {
       this.renderer.domElement.height / (2 * Math.tan(this.camera.fov * DEG / 2));
     this.composer.render();
     this.hud.draw(this.hudState());
+    // START-Knopf nur zeigen, wenn gerade kein Rennen läuft
+    this.startButton ??= document.getElementById('startButton');
+    this.startButton.classList.toggle('hidden', this.race.phase === 'running' || this.race.phase === 'countdown');
   }
 
   readControls() {
@@ -1382,7 +1501,9 @@ class Game {
   }
 
   step(dt) {
-    if (this.input.wasPressed('KeyR')) this.reset();
+    if (this.input.wasPressed('KeyR')) {
+      if (this.race.phase === 'running') this.respawn(false); else this.reset();
+    }
     if (this.input.wasPressed('Enter') && this.race.phase !== 'running') { this.reset(); this.race.start(); }
     this.race.update(dt);
     this.crashCooldown = Math.max(0, this.crashCooldown - dt);
@@ -1400,6 +1521,8 @@ class Game {
     if (this.mode === 'ground') this.stepGround(c, dt);
     else if (this.mode === 'track') this.stepTrack(c, dt);
     else this.stepAir(c, dt);
+    // Im Rennen ist der Boden neben der Strecke verboten: zurück zum letzten Checkpoint
+    if (this.mode === 'ground' && this.race.phase === 'running') this.respawn(true);
     this.updatePose();
 
     let pitchTarget = 0;
@@ -1427,7 +1550,7 @@ class Game {
     const r = this.race;
     return {
       kmh: Math.round(Math.abs(this.mode === 'air' ? this.airVelocity.length() : this.speed) * 3.6),
-      suction: this.controls?.suction ?? false, warning: this.warning,
+      suction: this.controls?.suction ?? false, warning: this.warning, gapAhead: this.mode === 'track' && this.gapAhead,
       phase: r.phase, countdown: r.countdown, raceTime: r.raceTime, lap: r.lap, laps: r.laps,
       nextTarget: r.nextTarget, lapTimes: r.lapTimes, bestTotal: r.bestTotal, bestLap: r.bestLap,
       message: r.message, messageAge: r.messageAge, newRecord: r.newRecord, overlayHidden: this.overlayHidden,
@@ -1495,7 +1618,6 @@ class Game {
 
   stepTrack(c, dt) {
     const track = this.tracks[this.trackIndex];
-    const previousS = this.trackS;
     let f = track.frame(this.trackS);
     const forward = f.t.clone().multiplyScalar(Math.cos(this.trackPsi)).addScaledVector(f.r, -Math.sin(this.trackPsi));
 
@@ -1509,20 +1631,33 @@ class Game {
       this.trackS %= track.length;
       if (this.trackS < 0) this.trackS += track.length;
     } else if (this.trackS < 0 || this.trackS > track.length) {
-      return this.leaveTrack();
+      // Bahnende: nahtlos auf einen anschließenden Abschnitt wechseln, sonst abheben
+      if (!this.transferToOtherTrack()) this.leaveTrack();
+      return;
     }
     f = track.frame(this.trackS);
 
-    if (f.groundLevel) {
-      const p = f.p.clone().addScaledVector(f.r, this.trackD);
-      const fwd = f.t.clone().multiplyScalar(Math.cos(this.trackPsi)).addScaledVector(f.r, -Math.sin(this.trackPsi));
-      const push = this.collide(p.x, p.z, fwd.x, fwd.z, 0);
-      if (push) {
-        const push3 = V(push[0], 0, push[1]);
-        this.trackD += push3.dot(f.r);
-        this.trackS += push3.dot(f.t);
-        this.bounce(push, fwd.x, fwd.z);
+    // Leitplanken auf flachen Bodenstücken
+    const railLimit = track.halfWidth - 0.9;
+    if (track.rails && f.groundLevel && Math.abs(this.trackD) > railLimit) {
+      const side = Math.sign(this.trackD);
+      this.trackD = side * railLimit;
+      const outward = -Math.sin(this.trackPsi) * side;
+      if (outward > 0) {
+        this.speed *= 1 - 0.6 * Math.abs(Math.sin(this.trackPsi));
+        this.trackPsi *= 0.3;   // an der Planke entlang ausrichten
       }
+    }
+
+    // geparkte Autos (auch auf den Himmelsbahnen)
+    const p = f.p.clone().addScaledVector(f.r, this.trackD);
+    const fwd = f.t.clone().multiplyScalar(Math.cos(this.trackPsi)).addScaledVector(f.r, -Math.sin(this.trackPsi));
+    const push = this.collide(p.x, p.z, fwd.x, fwd.z, p.y);
+    if (push) {
+      const push3 = V(push[0], 0, push[1]);
+      this.trackD += push3.dot(f.r);
+      this.trackS += push3.dot(f.t);
+      this.bounce(push, fwd.x, fwd.z);
     }
 
     if (Math.abs(this.trackD) > track.halfWidth) return this.leaveTrack();
@@ -1531,12 +1666,47 @@ class Game {
     const cosPsi = Math.cos(this.trackPsi);
     const pressure = this.speed * this.speed * f.kappa * cosPsi * cosPsi + this.gravity * f.n.y;
     this.warning = !f.groundLevel && pressure < 5;
+    // Hinweis kurz vor dem Ende eines Abschnitts, wenn danach eine Lücke kommt
+    const cp = this.race.checkpoints[this.race.nextCheckpoint];
+    this.gapAhead = this.race.phase === 'running' && cp && cp.track !== this.trackIndex && cp.s === 0 &&
+                    !track.closed && track.length - this.trackS < 220;
     if (pressure + (c.suction ? this.suctionStrength : 0) < -0.5) return this.leaveTrack();
 
-    if (this.trackIndex === 0) this.race.moved(previousS, this.trackS, track.length);
+    this.race.progress(this.trackIndex, this.trackS);
 
     if (c.flip) return this.launch(this.flipJumpSpeed, true);
     if (c.jump) return this.launch(this.jumpSpeed, false);
+  }
+
+  // am Ende einer Bahn direkt auf eine andere wechseln, die dort anschließt
+  transferToOtherTrack() {
+    this.updatePose();
+    const forward = V(0, 0, -1).applyQuaternion(this.carOrientation);
+    for (let i = 0; i < this.tracks.length; i++) {
+      if (i === this.trackIndex) continue;
+      const hit = this.tracks[i].nearest(this.carPosition);
+      if (!hit || Math.abs(hit.d) >= this.tracks[i].halfWidth || Math.abs(hit.h) >= 1.0) continue;
+      const heading = forward.clone().addScaledVector(hit.frame.n, -forward.dot(hit.frame.n)).normalize();
+      Object.assign(this, { trackIndex: i, trackS: hit.s, trackD: hit.d,
+                            trackPsi: Math.atan2(-heading.dot(hit.frame.r), heading.dot(hit.frame.t)) });
+      this.race.progress(i, hit.s);
+      return true;
+    }
+    return false;
+  }
+
+  // nach einem Absturz (oder mit R) zum letzten Checkpoint zurück
+  respawn(penalty) {
+    const r = this.race.respawnPoint;
+    if (penalty) this.race.fall();
+    Object.assign(this, { mode: 'track', trackIndex: r.track, trackS: r.s + 2, trackD: 0, trackPsi: 0,
+                          speed: 0, flipRemaining: 0, steer: 0 });
+    this.updatePose();
+    // Kamera sofort hinter das Auto setzen
+    const forward = V(0, 0, -1).applyQuaternion(this.carOrientation);
+    const up = V(0, 1, 0).applyQuaternion(this.carOrientation);
+    this.cameraUp.copy(up);
+    this.cameraPosition.copy(this.carPosition).addScaledVector(forward, -9).addScaledVector(up, 3);
   }
 
   stepAir(c, dt) {
@@ -1544,20 +1714,39 @@ class Game {
     const forward = V(0, 0, -1).applyQuaternion(this.airOrientation);
     this.airVelocity.y -= this.gravity * dt;
     if (c.jetsHeld) {
-      this.airVelocity.addScaledVector(up, this.hoverThrust * dt);
-      if (c.gas) this.airVelocity.addScaledVector(forward, 12 * dt);
+      this.airVelocity.y += this.hoverThrust * dt;   // Düsen drücken immer senkrecht nach oben
+      if (c.gas) this.airVelocity.addScaledVector(V(forward.x, 0, forward.z).normalize(), 12 * dt);
     }
     this.airOrientation.premultiply(qAxis(up, this.steer * 2.2 * dt));
+    // Lagestabilisierung: außer beim Kickflip richtet sich das Auto in der Luft langsam waagerecht aus
+    if (this.flipRemaining <= 0 && Math.hypot(forward.x, forward.z) > 0.2) {
+      const level = new THREE.Quaternion().setFromAxisAngle(Y, Math.atan2(-forward.x, -forward.z));
+      this.airOrientation.slerp(level, 1 - Math.exp(-2.5 * dt));
+    }
     if (this.flipRemaining > 0) {
       const delta = Math.min(this.flipRemaining, 2 * Math.PI / this.flipDuration * dt);
       this.airOrientation.multiply(qAxis(Z, delta));
       this.flipRemaining -= delta;
     }
     this.airOrientation.normalize();
+    // leichter Luftwiderstand, damit man nicht endlos weiterfliegt
+    const drag = Math.exp(-0.05 * dt);
+    this.airVelocity.x *= drag; this.airVelocity.z *= drag;
     this.airCenter.addScaledVector(this.airVelocity, dt);
     if (this.airCenter.y > 150) { this.airCenter.y = 150; this.airVelocity.y = Math.min(this.airVelocity.y, 0); }
 
     if (this.airCenter.y <= this.centerHeight && this.airVelocity.y <= 0) return this.landOnGround();
+
+    // Bahnen sind fest: von unten prallt man an der Unterseite ab
+    for (const track of this.tracks) {
+      const hit = track.nearest(this.airCenter);
+      if (!hit || Math.abs(hit.d) >= track.halfWidth + 0.5) continue;
+      const n = hit.frame.n, vn = this.airVelocity.dot(n);
+      if (hit.h < -0.4 && hit.h > -1.6 && vn > 0) {
+        this.airVelocity.addScaledVector(n, -vn * 1.4);
+        this.airCenter.addScaledVector(n, -1.6 - hit.h);
+      }
+    }
     if (this.attachCooldown > 0) return;
 
     for (let i = 0; i < this.tracks.length; i++) {
@@ -1645,7 +1834,7 @@ class Game {
   collide(px, pz, fx, fz, bottom) {
     let ox = 0, oz = 0;
     for (const o of this.obstacles) {
-      if (bottom >= o.height) continue;
+      if (bottom >= o.base + o.height || bottom < o.base - 1) continue;
       if (Math.hypot(px - o.center[0], pz - o.center[1]) > o.reach + 2.5) continue;
       for (const k of [-1.3, 0, 1.3]) {
         const mx = px + fx * k, mz = pz + fz * k;
