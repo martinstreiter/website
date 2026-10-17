@@ -10,6 +10,8 @@ Statische Website, gehostet über GitHub Pages aus dem Repo
 - `snake.html` + `js/snake.js` – Minispiel „Holzblasinstrumentensnake“ (Canvas, Wischen/Pfeiltasten;
   Instrumente Querflöte, Oboe, Klarinette, Fagott mit je eigenem Futter),
   verlinkt unter den Konzertterminen
+- `goatster-n6n73v3gju.html` – 3D-Fahrspiel „Goatster“ (Three.js, Quelle in `~/Projects/tesla-roadster/web/`).
+  Geheime Seite: nirgends verlinken, `noindex` behalten
 - `css/styles.css` – gemeinsames Stylesheet für alle Seiten
 - `images/` – Bilder
 
