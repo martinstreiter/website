@@ -30,13 +30,6 @@
   #touch button.on { background: rgba(102,204,255,0.35); border-color: #6cf; }
   #touch .wide { border-radius: 14px; width: auto; height: auto; padding: 12px 22px; font-size: 13px; }
   #touch .hidden { display: none; }
-  #steerZone { position: absolute; left: 0; top: 30%; bottom: 0; width: 46%; pointer-events: auto; touch-action: none; }
-  #steerZone span { position: absolute; left: calc(26px + env(safe-area-inset-left)); bottom: 26px; color: rgba(255,255,255,0.35);
-                    font: 600 11px/1.6 -apple-system, sans-serif; letter-spacing: 0.2em; }
-  #steerKnob { position: absolute; width: 66px; height: 66px; margin: -33px 0 0 -33px; border-radius: 50%; display: none;
-               border: 1.5px solid rgba(255,255,255,0.55); background: rgba(102,204,255,0.18); }
-  #steerBase { position: absolute; width: 160px; height: 4px; margin: -2px 0 0 -80px; border-radius: 2px; display: none;
-               background: rgba(255,255,255,0.18); }
   .game-links { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); z-index: 5; white-space: nowrap;
                 font: 11px/1 -apple-system, sans-serif; letter-spacing: 0.1em; }
   .game-links a { color: rgba(255,255,255,0.45); text-decoration: none; margin: 0 8px; }
@@ -55,7 +48,8 @@
 <div id="stage">
 <div id="loading">LÄDT …</div>
 <div id="touch">
-  <div id="steerZone"><div id="steerBase"></div><div id="steerKnob"></div><span>HIER WISCHEN<br>= LENKEN</span></div>
+  <button data-key="ArrowLeft"  style="--s:88px; left:calc(18px + env(safe-area-inset-left)); bottom:20px">◀</button>
+  <button data-key="ArrowRight" style="--s:88px; left:calc(120px + env(safe-area-inset-left)); bottom:20px">▶</button>
   <button data-key="ShiftLeft" style="--s:98px; right:calc(18px + env(safe-area-inset-right)); bottom:20px">DRIFT</button>
   <button data-key="Space"     style="--s:80px; right:calc(22px + env(safe-area-inset-right)); bottom:132px">SPRUNG</button>
   <button data-key="ArrowDown" style="--s:62px; right:calc(132px + env(safe-area-inset-right)); bottom:20px">BREMSE</button>
@@ -246,7 +240,8 @@ function loftGeometry(sections, creases, materialCount, materialFor, capFront = 
 // Partikel für die Pressluft-Düsen
 // =====================================================================
 class Particles {
-  constructor(scene, max = 9000) {
+  // wind = true: weißlich-grauer Fahrtwind statt blauer Düsenluft
+  constructor(scene, max = 9000, wind = false) {
     this.max = max;
     this.count = 0;
     this.pos = new Float32Array(max * 3);
@@ -279,9 +274,11 @@ class Particles {
       fragmentShader: `
         uniform sampler2D uTex; varying float vRatio;
         void main() {
-          vec3 c0 = vec3(0.45, 0.75, 1.0), c1 = vec3(0.12, 0.35, 1.0), c2 = vec3(0.02, 0.08, 0.6);
+          ${wind ? 'vec3 c0 = vec3(0.9, 0.93, 1.0), c1 = vec3(0.65, 0.72, 0.85), c2 = vec3(0.35, 0.4, 0.5);'
+                 : 'vec3 c0 = vec3(0.45, 0.75, 1.0), c1 = vec3(0.12, 0.35, 1.0), c2 = vec3(0.02, 0.08, 0.6);'}
           vec3 col = vRatio < 0.5 ? mix(c0, c1, vRatio * 2.0) : mix(c1, c2, (vRatio - 0.5) * 2.0);
-          float a = vRatio < 0.5 ? mix(0.3, 0.12, vRatio * 2.0) : mix(0.12, 0.0, (vRatio - 0.5) * 2.0);
+          float a0 = ${wind ? '0.16' : '0.3'};
+          float a = vRatio < 0.5 ? mix(a0, a0 * 0.4, vRatio * 2.0) : mix(a0 * 0.4, 0.0, (vRatio - 0.5) * 2.0);
           gl_FragColor = vec4(col * 1.1, a * texture2D(uTex, gl_PointCoord).a);
         }`,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
@@ -335,8 +332,9 @@ const roofY = new Table(canopyZ, [0.80, 0.92, 1.03, 1.10, 1.12, 1.10, 1.02, 0.93
 const roofHalfWidth = new Table(canopyZ, [0.80, 0.72, 0.62, 0.56, 0.55, 0.55, 0.52, 0.45]);
 
 class CarModel {
-  constructor(particles) {
+  constructor(particles, wind) {
     this.particles = particles;
+    this.wind = wind;
     this.root = new THREE.Group();
     this.body = new THREE.Group();
     this.body.position.y = 0.6;
@@ -484,15 +482,16 @@ class CarModel {
     }
   }
 
-  makeJet(position, direction) {
+  // opts: Partikelsystem, Tempo, Lebensdauer, Größe, Streuung, ob die Düsenöffnung leuchtet
+  makeJet(position, direction, { system = this.particles, speed = 13, life = 0.6, size = 0.22, spread = 4, nozzle = true } = {}) {
     const node = new THREE.Object3D();
     node.position.copy(position);
     this.visual.add(node);
     const glow = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.01, 16), Mat.glow(rgb(0.5, 0.85, 1), 5));
     glow.quaternion.setFromUnitVectors(V(0, -1, 0), direction);
     glow.visible = false;
-    node.add(glow);
-    return { node, direction, glow, rate: 0, carry: 0 };
+    if (nozzle) node.add(glow);
+    return { node, direction, glow, rate: 0, carry: 0, system, speed, life, size, spread };
   }
 
   buildJets() {
@@ -503,6 +502,15 @@ class CarModel {
     // Linksdrehung: vorne rechts nach außen + hinten links nach außen (und umgekehrt)
     this.jets.yawLeft = [this.makeJet(V(1.0, 0.5, -1.5), V(1, 0, 0)), this.makeJet(V(-1.02, 0.55, 1.55), V(-1, 0, 0))];
     this.jets.yawRight = [this.makeJet(V(-1.0, 0.5, -1.5), V(-1, 0, 0)), this.makeJet(V(1.02, 0.55, 1.55), V(1, 0, 0))];
+    // Drift: nur die Düsen einer Seite schieben das Auto in die Kurve
+    this.jets.rightSide = [this.jets.yawLeft[0], this.jets.yawRight[1]];   // blasen nach rechts → Auto nach links
+    this.jets.leftSide = [this.jets.yawRight[0], this.jets.yawLeft[1]];    // blasen nach links → Auto nach rechts
+    // Fahrtwind unter dem Auto, wenn es sich in schnellen Kurven an den Boden saugt
+    this.jets.wind = [];
+    for (const x of [-0.75, 0.75]) for (const z of [-0.7, 0.8]) {
+      this.jets.wind.push(this.makeJet(V(x, 0.12, z), V(x * 0.3, -0.12, 1).normalize(),
+        { system: this.wind, speed: 9, life: 0.4, size: 0.32, spread: 12, nozzle: false }));
+    }
   }
 
   buildSuctionGlow() {
@@ -515,9 +523,13 @@ class CarModel {
     this.visual.add(this.suctionGlow);
   }
 
-  setJets(lift, boost, flip, yaw = 0) {
+  // yaw: Drehen in der Luft (±1); drift: Driftrichtung (+1 links, −1 rechts); wind: Fahrtwind unter dem Auto
+  setJets(lift, boost, flip, yaw = 0, drift = 0, wind = false) {
     this.jets.yawLeft.forEach(jet => this.setJet(jet, yaw > 0, 450));
     this.jets.yawRight.forEach(jet => this.setJet(jet, yaw < 0, 450));
+    if (drift > 0) this.jets.rightSide.forEach(jet => this.setJet(jet, true, 520));
+    if (drift < 0) this.jets.leftSide.forEach(jet => this.setJet(jet, true, 520));
+    this.jets.wind.forEach(jet => this.setJet(jet, wind, 160));
     this.jets.bottom.forEach((jet, i) => this.setJet(jet, lift || (flip && i % 2 === 1), 650));
     this.jets.rear.forEach(jet => this.setJet(jet, boost, 500));
     this.setJet(this.jets.side, flip, 650);
@@ -533,7 +545,7 @@ class CarModel {
 
   // Luftwölkchen ausstoßen (in Weltkoordinaten, damit sie zurückbleiben)
   emitJets(dt) {
-    const all = [...this.jets.bottom, ...this.jets.rear, this.jets.side, ...this.jets.yawLeft, ...this.jets.yawRight];
+    const all = [...this.jets.bottom, ...this.jets.rear, this.jets.side, ...this.jets.yawLeft, ...this.jets.yawRight, ...this.jets.wind];
     const p = V(), dir = V(), a = V(), b = V();
     for (const jet of all) {
       if (jet.rate === 0) { jet.carry = 0; continue; }
@@ -544,11 +556,11 @@ class CarModel {
       jet.carry += jet.rate * dt;
       while (jet.carry >= 1) {
         jet.carry -= 1;
-        const spread = Math.tan(4 * DEG) * Math.random();
+        const spread = Math.tan(jet.spread * DEG) * Math.random();
         const angle = Math.random() * Math.PI * 2;
         const v = dir.clone().addScaledVector(a, Math.cos(angle) * spread).addScaledVector(b, Math.sin(angle) * spread)
-          .normalize().multiplyScalar(13 + (Math.random() - 0.5) * 4);
-        this.particles.emit(p, v, 0.6 + (Math.random() - 0.5) * 0.3, 0.22 + (Math.random() - 0.5) * 0.12);
+          .normalize().multiplyScalar(jet.speed * (1 + (Math.random() - 0.5) * 0.3));
+        jet.system.emit(p, v, jet.life * (1 + (Math.random() - 0.5) * 0.5), jet.size * (1 + (Math.random() - 0.5) * 0.5));
       }
     }
   }
@@ -1167,7 +1179,7 @@ class HUD {
     if (s.phase === 'ready') {
       big = 'ZEITRENNEN';
       lines = IS_TOUCH
-        ? ['3 RUNDEN - ÜBER DIE LÜCKEN FLIEGEN', 'LINKS WISCHEN = LENKEN   DRIFT HALTEN + LENKEN = BOOST', 'START TIPPEN']
+        ? ['3 RUNDEN - ÜBER DIE LÜCKEN FLIEGEN', 'IN KURVEN: DRIFT HALTEN + LENKEN, LOSLASSEN = BOOST', 'START TIPPEN']
         : ['3 RUNDEN - ÜBER DIE LÜCKEN MUSST DU FLIEGEN', 'IN KURVEN DRIFTEN: ⇧ HALTEN + LENKEN, LOSLASSEN = BOOST', 'ENTER = START'];
     }
     else if (s.phase === 'countdown') big = String(Math.ceil(s.countdown));
@@ -1216,7 +1228,7 @@ function toggleFullscreen() {
       .catch(() => {});
   }
 }
-// Smartphone: links wischen = lenken, rechts Knöpfe (mehrere Finger gleichzeitig)
+// Smartphone: Bildschirmknöpfe (mehrere Finger gleichzeitig)
 function setupTouchButtons(input) {
   if (!IS_TOUCH) return;
   document.body.classList.add('touch');
@@ -1238,48 +1250,12 @@ function setupTouchButtons(input) {
     button.addEventListener('contextmenu', e => e.preventDefault());
   }
 
-  // Lenkfläche: Finger aufsetzen und nach links/rechts ziehen
-  const zone = document.getElementById('steerZone');
-  const knob = document.getElementById('steerKnob'), base = document.getElementById('steerBase');
-  const range = 70;
-  let finger = null, startX = 0;
-  const local = (e) => {
-    const p = toStage(e.clientX, e.clientY);
-    return { x: p.x - zone.offsetLeft, y: p.y - zone.offsetTop };
-  };
-  zone.addEventListener('pointerdown', e => {
-    e.preventDefault();
-    if (finger !== null) return;
-    finger = e.pointerId;
-    try { zone.setPointerCapture(finger); } catch {}
-    const p = local(e);
-    startX = p.x;
-    for (const el of [knob, base]) { el.style.display = 'block'; el.style.top = p.y + 'px'; }
-    base.style.left = p.x + 'px';
-    knob.style.left = p.x + 'px';
-    input.analogSteer = 0;
-  });
-  zone.addEventListener('pointermove', e => {
-    if (e.pointerId !== finger) return;
-    const dx = clamp(local(e).x - startX, -range, range);
-    knob.style.left = (startX + dx) + 'px';
-    input.analogSteer = -dx / range;   // nach rechts ziehen = rechts lenken
-  });
-  const release = (e) => {
-    if (e.pointerId !== finger) return;
-    finger = null;
-    input.analogSteer = null;
-    knob.style.display = base.style.display = 'none';
-  };
-  zone.addEventListener('pointerup', release);
-  zone.addEventListener('pointercancel', release);
-  zone.addEventListener('lostpointercapture', release);
+
 }
 
 class Input {
   constructor() {
     this.held = new Set(); this.pressed = new Set();
-    this.analogSteer = null;   // −1 … 1 von der Lenkfläche, null = keine Wischlenkung aktiv
     const gameKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'];
     window.addEventListener('keydown', e => {
       if (gameKeys.includes(e.code)) e.preventDefault();
@@ -1293,7 +1269,7 @@ class Input {
     document.addEventListener('webkitfullscreenchange', refocus);
     window.addEventListener('pointerdown', refocus);
     window.addEventListener('keyup', e => this.held.delete(e.code));
-    window.addEventListener('blur', () => { this.held.clear(); this.pressed.clear(); this.analogSteer = null; });
+    window.addEventListener('blur', () => { this.held.clear(); this.pressed.clear(); });
   }
   // für die Bildschirmknöpfe
   press(code) { if (!this.held.has(code)) this.pressed.add(code); this.held.add(code); }
@@ -1430,7 +1406,8 @@ class Game {
     this.hud = new HUD(document.getElementById('hud'));
     this.race = new Race();
     this.particles = new Particles(this.scene);
-    this.car = new CarModel(this.particles);
+    this.wind = new Particles(this.scene, 3000, true);
+    this.car = new CarModel(this.particles, this.wind);
     this.scene.add(this.car.root);
     this.tracks = []; this.obstacles = [];
     this.buildWorld();
@@ -1441,7 +1418,7 @@ class Game {
       mode: 'track', speed: 0, steer: 0, pitch: 0,
       groundX: 0, groundZ: 0, yaw: 0,
       trackIndex: 0, trackS: 3, trackD: 0, trackPsi: 0, trackMove: 0, moveYaw: 0, gapAhead: false,
-      drifting: false, driftCharge: 0, boostTime: 0, autoSuction: false, flipUsed: false, wallFlash: 0,
+      drifting: false, driftDir: 0, driftCharge: 0, boostTime: 0, autoSuction: false, corneringSuction: false, flipUsed: false, wallFlash: 0,
       airCenter: V(), airVelocity: V(), airOrientation: new THREE.Quaternion(),
       flipRemaining: 0, jumpBurst: 0, attachCooldown: 0, crashCooldown: 0,
       overlayHidden: false, lastPhase: 'ready',
@@ -1836,8 +1813,10 @@ class Game {
     this.last = now;
     this.step(dt);
     this.particles.update(dt);
-    this.particles.material.uniforms.uScale.value =
-      this.renderer.domElement.height / (2 * Math.tan(this.camera.fov * DEG / 2));
+    this.wind.update(dt);
+    const scale = this.renderer.domElement.height / (2 * Math.tan(this.camera.fov * DEG / 2));
+    this.particles.material.uniforms.uScale.value = scale;
+    this.wind.material.uniforms.uScale.value = scale;
     this.composer.render();
     this.hud.draw(this.hudState());
     // START-Knopf nur zeigen, wenn gerade kein Rennen läuft
@@ -1848,8 +1827,7 @@ class Game {
   readControls() {
     const i = this.input;
     const left = i.isDown('KeyA', 'ArrowLeft'), right = i.isDown('KeyD', 'ArrowRight');
-    let steerTarget = (left ? 1 : 0) - (right ? 1 : 0);
-    if (i.analogSteer !== null) steerTarget = i.analogSteer;   // Wischlenkung auf dem Handy
+    const steerTarget = (left ? 1 : 0) - (right ? 1 : 0);
     const brake = i.isDown('KeyS', 'ArrowDown');
     // Handy: im Rennen gibt das Auto automatisch Gas
     const autoGas = IS_TOUCH && this.race.phase === 'running' && !brake;
@@ -1873,9 +1851,10 @@ class Game {
     let c = this.readControls();
     if (this.race.controlsLocked) c = { gas: false, brake: false, steerTarget: 0, jetsHeld: false, jump: false, flip: false, drift: false };
     this.controls = c;
-    this.steer += (c.steerTarget - this.steer) * Math.min(1, dt * (this.input.analogSteer !== null ? 14 : 8));
+    this.steer += (c.steerTarget - this.steer) * Math.min(1, dt * 10);
     this.drifting = false;
     this.autoSuction = false;
+    this.corneringSuction = false;
     this.boostTime = Math.max(0, this.boostTime - dt);
     this.attachCooldown = Math.max(0, this.attachCooldown - dt);
     this.jumpBurst = Math.max(0, this.jumpBurst - dt);
@@ -1900,11 +1879,12 @@ class Game {
     car.root.quaternion.copy(this.carOrientation);
     car.body.rotation.set(this.pitch, 0, 0);
     car.updateWheels(this.speed, this.steer, dt);
-    // seitliche Düsen: beim Drehen in der Luft und beim Driften
-    const yawJets = (this.mode === 'air' || this.drifting) && Math.abs(this.steer) > 0.15 ? Math.sign(this.steer) : 0;
+    // seitliche Düsen: in der Luft paarweise zum Drehen, beim Driften nur auf der Seite, die schiebt
+    const yawJets = this.mode === 'air' && Math.abs(this.steer) > 0.15 ? Math.sign(this.steer) : 0;
+    const driftSide = this.drifting ? this.driftDir : 0;
     car.setJets(this.mode === 'air' && (c.jetsHeld || this.jumpBurst > 0), (c.gas && this.speed >= 0) || this.boostTime > 0,
-                this.flipRemaining > 0, yawJets);
-    car.setSuction(this.autoSuction);
+                this.flipRemaining > 0, yawJets, driftSide, this.corneringSuction);
+    car.setSuction(this.autoSuction || this.corneringSuction);
     this.wallFlash = Math.max(0, this.wallFlash - dt);
     car.root.updateMatrixWorld(true);
     car.emitJets(dt);
@@ -1954,13 +1934,21 @@ class Game {
     const v = Math.abs(this.speed);
     const grip = Math.min(1, v / 5);
     const direction = this.speed >= 0 ? 1 : -1;
-    const maxRate = drifting ? Math.min(2.7, 85 / Math.max(v, 1)) : Math.min(2.1, 36 / Math.max(v, 1));
-    return this.steer * maxRate * grip * direction;
+    if (drifting) {
+      // Drift wie bei Mario Kart: Richtung steht fest; in die Kurve lenken = enger, dagegen = weiter.
+      // Bis 4,3 rad/s – genug, um jede Kurve auch mit Höchstgeschwindigkeit zu schaffen.
+      const turn = this.driftDir * (0.55 + 0.45 * this.steer * this.driftDir);
+      return turn * 4.3 * grip * direction;
+    }
+    return this.steer * Math.min(2.1, 36 / Math.max(v, 1)) * grip * direction;
   }
 
   // Drift: Taste halten + lenken. Seitliche Düsen drehen das Auto quer; loslassen gibt einen Boost.
   updateDrift(c, dt) {
-    const drifting = c.drift && this.speed > 12 && Math.abs(this.steer) > 0.2;
+    // Drift beginnt, wenn man Drift hält und lenkt; er läuft weiter, solange Drift gehalten wird
+    if (c.drift && this.speed > 12 && this.driftDir === 0 && Math.abs(this.steer) > 0.2) this.driftDir = Math.sign(this.steer);
+    if (!c.drift || this.speed <= 8) this.driftDir = 0;
+    const drifting = this.driftDir !== 0;
     if (drifting) {
       this.driftCharge += dt;
     } else if (this.driftCharge > 0) {
@@ -1978,10 +1966,10 @@ class Game {
 
   // Fahrtrichtung folgt der Ausrichtung des Autos; beim Driften rutscht es (Bewegung hängt hinterher)
   slide(heading, move, drifting, dt) {
-    const grip = drifting ? 2.2 : 12;
+    const grip = drifting ? 6.5 : 12;
     move += (heading - move) * Math.min(1, grip * dt);
     const slip = heading - move;
-    this.speed -= this.speed * Math.abs(Math.sin(slip)) * (drifting ? 0.35 : 1.2) * dt;   // Reifen radieren
+    this.speed -= this.speed * Math.abs(Math.sin(slip)) * (drifting ? 0.1 : 1.2) * dt;   // Reifen radieren
     if (this.boostTime > 0) this.speed = Math.min(this.speed + 25 * dt, this.maxSpeed + 12);
     return move;
   }
@@ -2076,6 +2064,8 @@ class Game {
     const cosMove = Math.cos(this.trackMove);
     const pressure = this.speed * this.speed * f.kappa * cosMove * cosMove + this.gravity * f.n.y;
     this.autoSuction = !f.groundLevel && pressure < 5;
+    // extrem schnell durch die Kurve: das Auto saugt sich an (Fahrtwind unter dem Auto)
+    this.corneringSuction = this.speed * this.speed * Math.abs(f.kappaG) > 32;
     // Hinweis kurz vor dem Ende eines Abschnitts, wenn danach eine Lücke kommt
     const cp = this.race.checkpoints[this.race.nextCheckpoint];
     this.gapAhead = this.race.phase === 'running' && cp && cp.track !== this.trackIndex && cp.s === 0 &&
@@ -2110,7 +2100,7 @@ class Game {
     const r = this.race.respawnPoint;
     if (penalty) this.race.fall();
     Object.assign(this, { mode: 'track', trackIndex: r.track, trackS: r.s + 2, trackD: 0, trackPsi: 0, trackMove: 0,
-                          speed: 0, flipRemaining: 0, steer: 0, driftCharge: 0, boostTime: 0 });
+                          speed: 0, flipRemaining: 0, steer: 0, driftCharge: 0, driftDir: 0, boostTime: 0 });
     this.updatePose();
     // Kamera sofort hinter das Auto setzen
     const forward = V(0, 0, -1).applyQuaternion(this.carOrientation);
@@ -2205,7 +2195,7 @@ class Game {
     this.airCenter.copy(this.carPosition).addScaledVector(up, this.centerHeight);
     this.airVelocity.copy(forward).multiplyScalar(this.speed).addScaledVector(up, upSpeed);
     Object.assign(this, { flipRemaining: flip ? 2 * Math.PI : 0, flipUsed: flip, jumpBurst: 0.3, attachCooldown: 0.25,
-                          driftCharge: 0, mode: 'air' });
+                          driftCharge: 0, driftDir: 0, mode: 'air' });
   }
 
   leaveTrack() {
@@ -2242,7 +2232,7 @@ class Game {
 
   reset() {
     Object.assign(this, { mode: 'track', trackIndex: 0, trackS: 3, trackD: 0, trackPsi: 0, trackMove: 0, speed: 0,
-                          flipRemaining: 0, driftCharge: 0, boostTime: 0 });
+                          flipRemaining: 0, driftCharge: 0, driftDir: 0, boostTime: 0 });
   }
 
   updatePose() {
