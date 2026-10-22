@@ -10,8 +10,9 @@ Statische Website, gehostet über GitHub Pages aus dem Repo
 - `snake.html` + `js/snake.js` – Minispiel „Holzblasinstrumentensnake“ (Canvas, Wischen/Pfeiltasten;
   Instrumente Querflöte, Oboe, Klarinette, Fagott mit je eigenem Futter),
   verlinkt unter den Konzertterminen
-- `goatster-n6n73v3gju.html` – 3D-Fahrspiel „Goatster“ (Three.js, Quelle in `~/Projects/goatster/web/`).
-  Geheime Seite: nirgends verlinken, `noindex` behalten
+- `goatster.html` – 3D-Rennspiel „Goatster“ (Three.js), verlinkt im Kapitel „Games“ der Startseite.
+  Nicht direkt bearbeiten: Quelle ist `~/Projects/goatster/web/index.html`,
+  die Seite erzeugt `python3 ~/Projects/goatster/web/website-seite.py`
 - `css/styles.css` – gemeinsames Stylesheet für alle Seiten
 - `images/` – Bilder
 

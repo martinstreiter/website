@@ -5,16 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Goatster</title>
-<meta name="robots" content="noindex, nofollow">
-<meta name="description" content="Goatster – ein 3D-Fahrspiel mit Pressluftdüsen, Looping und Zeitrennen.">
+<meta name="description" content="Goatster – 3D-Rennspiel auf einer Raketenbasis im Weltraum: driften, fliegen, Loopings. Ein Spiel von Martin Streiter.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Martin Streiter">
+<meta property="og:title" content="Goatster">
+<meta property="og:description" content="3D-Rennspiel auf einer Raketenbasis im Weltraum: driften, fliegen, Loopings.">
+<meta property="og:url" content="https://martinstreiter.de/goatster.html">
+<meta name="twitter:card" content="summary">
 <link rel="stylesheet" href="css/styles.css">
 <style>
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; touch-action: none; overscroll-behavior: none;
                -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
-  canvas { display: block; }
-  #hud { position: fixed; inset: 0; pointer-events: none; outline: none; }
-  /* Bildschirmknöpfe fürs Smartphone */
-  #touch { position: fixed; inset: 0; pointer-events: none; display: none; z-index: 4; }
+  /* Bühne: das ganze Spiel. Auf Handys im Hochformat wird sie gedreht, damit immer quer gespielt wird. */
+  #stage { position: fixed; left: 0; top: 0; overflow: hidden; transform-origin: 0 0; background: #000; }
+  #stage canvas { display: block; position: absolute; left: 0; top: 0; }
+  #hud { pointer-events: none; outline: none; }
+  /* Bildschirmsteuerung fürs Smartphone */
+  #touch { position: absolute; inset: 0; pointer-events: none; display: none; z-index: 4; }
   body.touch #touch { display: block; }
   #touch button { pointer-events: auto; position: absolute; width: var(--s); height: var(--s); border-radius: 50%;
                   border: 1.5px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.85);
@@ -23,10 +30,18 @@
   #touch button.on { background: rgba(102,204,255,0.35); border-color: #6cf; }
   #touch .wide { border-radius: 14px; width: auto; height: auto; padding: 12px 22px; font-size: 13px; }
   #touch .hidden { display: none; }
-  .game-impressum { position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%); z-index: 5;
-                    color: rgba(255,255,255,0.4); font: 11px/1 -apple-system, sans-serif; letter-spacing: 0.1em; }
-  body.touch .game-impressum { bottom: auto; top: 8px; }
-  #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+  #steerZone { position: absolute; left: 0; top: 30%; bottom: 0; width: 46%; pointer-events: auto; touch-action: none; }
+  #steerZone span { position: absolute; left: calc(26px + env(safe-area-inset-left)); bottom: 26px; color: rgba(255,255,255,0.35);
+                    font: 600 11px/1.6 -apple-system, sans-serif; letter-spacing: 0.2em; }
+  #steerKnob { position: absolute; width: 66px; height: 66px; margin: -33px 0 0 -33px; border-radius: 50%; display: none;
+               border: 1.5px solid rgba(255,255,255,0.55); background: rgba(102,204,255,0.18); }
+  #steerBase { position: absolute; width: 160px; height: 4px; margin: -2px 0 0 -80px; border-radius: 2px; display: none;
+               background: rgba(255,255,255,0.18); }
+  .game-links { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); z-index: 5; white-space: nowrap;
+                font: 11px/1 -apple-system, sans-serif; letter-spacing: 0.1em; }
+  .game-links a { color: rgba(255,255,255,0.45); text-decoration: none; margin: 0 8px; }
+  body.touch .game-links { bottom: auto; top: 6px; }
+  #loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
              color: #fff; font: 14px/1.4 -apple-system, sans-serif; letter-spacing: 0.3em; }
 </style>
 <script type="importmap">
@@ -37,21 +52,20 @@
 </script>
 </head>
 <body>
+<div id="stage">
 <div id="loading">LÄDT …</div>
 <div id="touch">
-  <button data-key="ArrowLeft"  style="--s:84px; left:calc(18px + env(safe-area-inset-left)); bottom:22px">◀</button>
-  <button data-key="ArrowRight" style="--s:84px; left:calc(116px + env(safe-area-inset-left)); bottom:22px">▶</button>
-  <button data-key="ShiftLeft"  style="--s:66px; left:calc(18px + env(safe-area-inset-left)); bottom:124px">SAUGEN</button>
-  <button data-key="ArrowUp"    style="--s:96px; right:calc(18px + env(safe-area-inset-right)); bottom:22px">GAS</button>
-  <button data-key="ArrowDown"  style="--s:66px; right:calc(126px + env(safe-area-inset-right)); bottom:22px">BREMSE</button>
-  <button data-key="Space"      style="--s:78px; right:calc(18px + env(safe-area-inset-right)); bottom:132px">SPRUNG</button>
-  <button data-key="KeyK"       style="--s:58px; right:calc(110px + env(safe-area-inset-right)); bottom:112px">FLIP</button>
+  <div id="steerZone"><div id="steerBase"></div><div id="steerKnob"></div><span>HIER WISCHEN<br>= LENKEN</span></div>
+  <button data-key="ShiftLeft" style="--s:98px; right:calc(18px + env(safe-area-inset-right)); bottom:20px">DRIFT</button>
+  <button data-key="Space"     style="--s:80px; right:calc(22px + env(safe-area-inset-right)); bottom:132px">SPRUNG</button>
+  <button data-key="ArrowDown" style="--s:62px; right:calc(132px + env(safe-area-inset-right)); bottom:20px">BREMSE</button>
   <button data-key="Enter" id="startButton" class="wide" style="left:50%; top:62%; transform:translateX(-50%)">START</button>
   <button data-key="KeyR" class="wide" style="left:calc(50% - 96px); bottom:14px; padding:8px 14px; font-size:10px">RESET</button>
   <button data-action="fullscreen" class="wide" style="left:calc(50% + 8px); bottom:14px; padding:8px 14px; font-size:10px">VOLLBILD</button>
 </div>
 <canvas id="hud" tabindex="0"></canvas>
-<a class="game-impressum" href="impressum.html">Impressum</a>
+<div class="game-links"><a href="index.html">← Startseite</a><a href="impressum.html">Impressum</a></div>
+</div>
 <script type="module">
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -69,6 +83,23 @@ const clamp = (x, a, b) => Math.min(Math.max(x, a), b);
 const DEG = Math.PI / 180;
 // Smartphone / Tablet mit Touchscreen?
 const IS_TOUCH = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+// Bühne: auf Handys im Hochformat um 90° drehen, damit das Spiel in jedem Browser quer läuft
+const stage = document.getElementById('stage');
+const view = { w: window.innerWidth, h: window.innerHeight, rotated: false };
+function layoutStage() {
+  const iw = window.innerWidth, ih = window.innerHeight;
+  const rotated = IS_TOUCH && ih > iw;
+  Object.assign(view, { w: rotated ? ih : iw, h: rotated ? iw : ih, rotated });
+  stage.style.width = view.w + 'px';
+  stage.style.height = view.h + 'px';
+  stage.style.transform = rotated ? `translateX(${iw}px) rotate(90deg)` : 'none';
+}
+// Bildschirmkoordinaten → Koordinaten auf der (evtl. gedrehten) Bühne
+function toStage(clientX, clientY) {
+  return view.rotated ? { x: clientY, y: window.innerWidth - clientX } : { x: clientX, y: clientY };
+}
+layoutStage();
+
 // Farbe aus sRGB-Werten (wie auf dem Bildschirm) in Three.js' linearen Farbraum
 const rgb = (r, g, b) => new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace);
 const grey = (w) => rgb(w, w, w);
@@ -413,7 +444,7 @@ class CarModel {
   }
 
   buildHeadlight() {
-    const light = new THREE.SpotLight(rgb(0.9, 0.95, 1), 60, 70, 0.55, 0.6, 1.5);
+    const light = new THREE.SpotLight(rgb(0.9, 0.95, 1), 25, 60, 0.55, 0.6, 1.5);
     light.position.set(0, 0.5, -2.3);
     const target = new THREE.Object3D();
     target.position.set(0, -0.6, -12);
@@ -517,7 +548,7 @@ class CarModel {
         const angle = Math.random() * Math.PI * 2;
         const v = dir.clone().addScaledVector(a, Math.cos(angle) * spread).addScaledVector(b, Math.sin(angle) * spread)
           .normalize().multiplyScalar(13 + (Math.random() - 0.5) * 4);
-        this.particles.emit(p, v, 0.75 + (Math.random() - 0.5) * 0.4, 0.34 + (Math.random() - 0.5) * 0.2);
+        this.particles.emit(p, v, 0.6 + (Math.random() - 0.5) * 0.3, 0.22 + (Math.random() - 0.5) * 0.12);
       }
     }
   }
@@ -531,7 +562,7 @@ class Track {
   // sky: schwebende Bahn (blau, ohne Stützen); rails: Leitplanken auf flachen Bodenstücken
   constructor(start, heading, pieces, { closed = false, correctionPiece = null, supports = true,
                                         slantedSupports = true, sky = false, rails = true } = {}) {
-    this.closed = closed; this.halfWidth = 6; this.spacing = 1; this.sky = sky; this.rails = rails && !sky;
+    this.closed = closed; this.halfWidth = 7; this.spacing = 1; this.sky = sky; this.rails = rails;
     this.edgeColor = sky ? rgb(0.2, 0.75, 1) : rgb(1, 0.12, 0.08);
     if (sky) supports = false;
     const hw = this.halfWidth;
@@ -585,7 +616,9 @@ class Track {
       const r = V().crossVectors(t, up);
       const dT = tangents[idx(i + 1)].clone().sub(tangents[idx(i - 1)]);
       const ds = points[idx(i + 1)].distanceTo(points[idx(i - 1)]);
-      return { p, t, n: up, r, kappa: ds > 0 ? dT.dot(up) / ds : 0, groundLevel: up.y > 0.95 && p.y < 2.0 };
+      // kappa: Krümmung zum Auto hin (Looping); kappaG: seitliche Krümmung (Kurve, in die man lenken muss)
+      return { p, t, n: up, r, kappa: ds > 0 ? dT.dot(up) / ds : 0, kappaG: ds > 0 ? dT.dot(r) / ds : 0,
+               groundLevel: up.y > 0.95 && p.y < 2.0 };
     });
     this.pieceStarts = ranges.map(r => r[0] * this.spacing);
     this.supportBeams = supports ? this.computeSupports(slantedSupports) : [];
@@ -612,7 +645,8 @@ class Track {
     const up = a.n.clone().lerp(b.n, f);
     up.addScaledVector(t, -up.dot(t)).normalize();
     return { p: a.p.clone().lerp(b.p, f), t, n: up, r: V().crossVectors(t, up),
-             kappa: a.kappa + (b.kappa - a.kappa) * f, groundLevel: a.groundLevel && b.groundLevel };
+             kappa: a.kappa + (b.kappa - a.kappa) * f, kappaG: a.kappaG + (b.kappaG - a.kappaG) * f,
+             groundLevel: a.groundLevel && b.groundLevel };
   }
 
   nearest(q) {
@@ -666,39 +700,46 @@ class Track {
     return result;
   }
 
-  makeNode(concreteTexture) {
+  // tex: { road, kerbRed, kerbBlue } – Texturen für Fahrbahn und Randsteine
+  makeNode(tex) {
     const group = new THREE.Group();
-    const concrete = Mat.pbr(new THREE.Color(1, 1, 1), { rough: 0.75 });
-    concrete.map = concreteTexture;
-    const slab = Mat.pbr(grey(0.32), { rough: 0.8 });
-    const white = Mat.glow(grey(0.95), 0.9);
-    const red = Mat.glow(this.edgeColor, 1.8);
-    for (const m of [white, red]) Object.assign(m, { polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-    const hw = this.halfWidth, th = 0.5;
+    const road = Mat.pbr(new THREE.Color(1, 1, 1), { rough: 0.55, metal: 0.15 });
+    road.map = tex.road;
+    const slab = Mat.pbr(grey(0.22), { metal: 0.6, rough: 0.5 });
+    const white = Mat.glow(grey(0.95), 0.8);
+    const edge = Mat.glow(this.edgeColor, 2.4);
+    const kerb = Mat.pbr(new THREE.Color(1, 1, 1), { rough: 0.45 });
+    kerb.map = this.sky ? tex.kerbBlue : tex.kerbRed;
+    for (const m of [white, edge, kerb]) Object.assign(m, { polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    const hw = this.halfWidth, th = 0.6;
     const strips = [
-      [[-hw, 0], [hw, 0], concrete, true],
-      [[hw, -th], [-hw, -th], slab, false],
-      [[-hw, -th], [-hw, 0], slab, false],
+      [[-hw, 0], [hw, 0], road, true],                       // Fahrbahn
+      [[hw, -th], [-hw, -th], slab, false],                  // Unterseite
+      [[-hw, -th], [-hw, 0], slab, false],                   // Seitenkanten
       [[hw, 0], [hw, -th], slab, false],
-      [[-0.12, 0.03], [0.12, 0.03], white, false],
-      [[-hw + 0.05, 0.035], [-hw + 0.25, 0.035], red, false],
-      [[hw - 0.25, 0.035], [hw - 0.05, 0.035], red, false]
+      [[-0.15, 0.03], [0.15, 0.03], white, false],           // Mittellinie
+      [[-hw, 0.025], [-hw + 1.0, 0.025], kerb, true],        // Randsteine (rot-weiß bzw. blau-weiß)
+      [[hw - 1.0, 0.025], [hw, 0.025], kerb, true],
+      [[-hw + 1.0, 0.035], [-hw + 1.15, 0.035], edge, false], // Leuchtlinien
+      [[hw - 1.15, 0.035], [hw - 1.0, 0.035], edge, false]
     ];
     for (const [a, b, m, receive] of strips) {
       const mesh = new THREE.Mesh(this.strip(a, b), m);
       mesh.receiveShadow = receive;
       group.add(mesh);
     }
-    // Leitplanken auf flachen Bodenstücken (innen und außen, damit man von beiden Seiten etwas sieht)
+    // Begrenzungsmauern mit Leuchtband
     if (this.rails) {
-      const rail = Mat.pbr(grey(0.7), { metal: 0.8, rough: 0.35 });
-      rail.side = THREE.DoubleSide;
-      const railTop = Mat.glow(this.edgeColor, 1.4);
-      const onGround = f => f.groundLevel;
+      const wall = Mat.pbr(grey(0.16), { metal: 0.7, rough: 0.35 });
+      wall.side = THREE.DoubleSide;
+      const band = Mat.glow(this.edgeColor, 1.6);
+      band.side = THREE.DoubleSide;
+      const top = Mat.glow(this.edgeColor, 3);
       for (const side of [-1, 1]) {
-        const d = side * (hw - 0.05);
-        group.add(new THREE.Mesh(this.strip([d, 0], [d, 0.7], onGround), rail));
-        group.add(new THREE.Mesh(this.strip([d - 0.06 * side, 0.7], [d + 0.06 * side, 0.7], onGround), railTop));
+        const d = side * hw;
+        group.add(new THREE.Mesh(this.strip([d, 0], [d, 1.0]), wall));
+        group.add(new THREE.Mesh(this.strip([d - 0.01 * side, 0.4], [d - 0.01 * side, 0.55]), band));
+        group.add(new THREE.Mesh(this.strip([d - 0.08 * side, 1.0], [d + 0.08 * side, 1.0]), top));
       }
     }
     if (this.supportBeams.length) {
@@ -1081,7 +1122,7 @@ class HUD {
   }
   resize() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    this.w = window.innerWidth; this.h = window.innerHeight;
+    this.w = view.w; this.h = view.h;
     this.canvas.width = this.w * dpr; this.canvas.height = this.h * dpr;
     this.canvas.style.width = this.w + 'px'; this.canvas.style.height = this.h + 'px';
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -1109,9 +1150,9 @@ class HUD {
       this.drawMap(w - 44 - 170, h - 130 - 170, 170, s.car);
       T(String(s.kmh), w - 44, h - 72, 54, 2.2, 3.6, 'right');
       T('KM/H', w - 44, h - 40, 12, 4, 1.4, 'right', dim);
-      const help = ['W/↑ GAS    S/↓ BREMSE    A D/← → LENKEN',
-                    'LEERTASTE DÜSENSPRUNG, HALTEN = FLIEGEN    K KICKFLIP',
-                    '⇧ HALTEN = FESTSAUGEN    R ZUM CHECKPOINT    ENTER RENNEN    F VOLLBILD'];
+      const help = ['W/↑ GAS    S/↓ BREMSE    A D/← → LENKEN    ⇧ ODER X HALTEN = DRIFTEN, LOSLASSEN = BOOST',
+                    'LEERTASTE SPRINGEN, HALTEN = FLIEGEN, IN DER LUFT NOCHMAL = KICKFLIP',
+                    'R ZUM CHECKPOINT    ENTER RENNEN    F VOLLBILD'];
       help.forEach((line, i) => T(line, 44, h - 76 + i * 22, 10, 3, 1.2, 'left', dim));
     }
     const startKey = IS_TOUCH ? 'START TIPPEN' : 'ENTER';
@@ -1125,7 +1166,9 @@ class HUD {
     let big = '', lines = [];
     if (s.phase === 'ready') {
       big = 'ZEITRENNEN';
-      lines = ['3 RUNDEN - ÜBER DIE LÜCKEN MUSST DU FLIEGEN', 'ABSTURZ ODER CRASH = +3 SEKUNDEN', IS_TOUCH ? 'START TIPPEN' : 'ENTER = START'];
+      lines = IS_TOUCH
+        ? ['3 RUNDEN - ÜBER DIE LÜCKEN FLIEGEN', 'LINKS WISCHEN = LENKEN   DRIFT HALTEN + LENKEN = BOOST', 'START TIPPEN']
+        : ['3 RUNDEN - ÜBER DIE LÜCKEN MUSST DU FLIEGEN', 'IN KURVEN DRIFTEN: ⇧ HALTEN + LENKEN, LOSLASSEN = BOOST', 'ENTER = START'];
     }
     else if (s.phase === 'countdown') big = String(Math.ceil(s.countdown));
     else if (s.phase === 'finished') {
@@ -1139,15 +1182,17 @@ class HUD {
 
     if (s.messageAge < 2.5) {
       const bad = s.message.startsWith('CRASH') || s.message.startsWith('ABSTURZ');
-      T(s.message, w / 2, 160, 20, 4, 2.2, 'center', bad ? red : '#fff', clamp((2.5 - s.messageAge) * 2, 0, 1));
+      const boost = s.message.includes('BOOST');
+      T(s.message, w / 2, 160, 20, 4, 2.2, 'center', bad ? red : boost ? '#ffa030' : '#fff', clamp((2.5 - s.messageAge) * 2, 0, 1));
     }
     if (s.gapAhead) T(IS_TOUCH ? 'LÜCKE VORAUS: SPRUNG DRÜCKEN UND HALTEN' : 'LÜCKE VORAUS: SPRINGEN + LEERTASTE HALTEN',
                       w / 2, 236, 15, 4, 1.8, 'center', cyan);
     if (!IS_TOUCH && !document.hasFocus()) T('INS BILD KLICKEN, DAMIT DIE TASTATUR WIRKT', w / 2, h / 2 + 140, 14, 4, 1.6, 'center', cyan);
-    if (s.warning && !s.suction) {
-      if (Math.floor(performance.now() / 250) % 2 === 0) T('⇧ FESTSAUGEN!', w / 2, 200, 16, 4, 1.9, 'center', red);
-    } else if (s.suction) {
-      T('SAUGT FEST', w / 2, 200, 16, 4, 1.9, 'center', cyan);
+    if (s.suction) T('SAUGT FEST', w / 2, 200, 16, 4, 1.9, 'center', cyan);
+    // Drift-Anzeige: wird mit der Zeit orange und dann pink (= stärkerer Boost)
+    if (s.drifting) {
+      const color = s.driftCharge > 1.5 ? '#ff4fd8' : s.driftCharge > 0.5 ? '#ffa030' : '#ffffff';
+      T('DRIFT', w / 2, h - (IS_TOUCH ? 150 : 130), 22, 5, 2.4, 'center', color);
     }
     ctx.restore();
   }
@@ -1164,11 +1209,14 @@ function toggleFullscreen() {
     el.webkitRequestFullscreen(Element.ALLOW_KEYBOARD_INPUT);   // Safari: Tastatur im Vollbild ausdrücklich erlauben
   } else if (el.requestFullscreen) {
     el.requestFullscreen({ navigationUI: 'hide' })
-      .then(() => navigator.keyboard?.lock?.().catch(() => {}))   // Chrome: auch Esc & Co. ans Spiel geben
+      .then(() => {
+        navigator.keyboard?.lock?.().catch(() => {});            // Chrome: auch Esc & Co. ans Spiel geben
+        screen.orientation?.lock?.('landscape').catch(() => {});  // Android: Querformat festhalten
+      })
       .catch(() => {});
   }
 }
-// Bildschirmknöpfe mit mehreren Fingern gleichzeitig bedienen
+// Smartphone: links wischen = lenken, rechts Knöpfe (mehrere Finger gleichzeitig)
 function setupTouchButtons(input) {
   if (!IS_TOUCH) return;
   document.body.classList.add('touch');
@@ -1189,11 +1237,49 @@ function setupTouchButtons(input) {
     button.addEventListener('lostpointercapture', up);
     button.addEventListener('contextmenu', e => e.preventDefault());
   }
+
+  // Lenkfläche: Finger aufsetzen und nach links/rechts ziehen
+  const zone = document.getElementById('steerZone');
+  const knob = document.getElementById('steerKnob'), base = document.getElementById('steerBase');
+  const range = 70;
+  let finger = null, startX = 0;
+  const local = (e) => {
+    const p = toStage(e.clientX, e.clientY);
+    return { x: p.x - zone.offsetLeft, y: p.y - zone.offsetTop };
+  };
+  zone.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    if (finger !== null) return;
+    finger = e.pointerId;
+    try { zone.setPointerCapture(finger); } catch {}
+    const p = local(e);
+    startX = p.x;
+    for (const el of [knob, base]) { el.style.display = 'block'; el.style.top = p.y + 'px'; }
+    base.style.left = p.x + 'px';
+    knob.style.left = p.x + 'px';
+    input.analogSteer = 0;
+  });
+  zone.addEventListener('pointermove', e => {
+    if (e.pointerId !== finger) return;
+    const dx = clamp(local(e).x - startX, -range, range);
+    knob.style.left = (startX + dx) + 'px';
+    input.analogSteer = -dx / range;   // nach rechts ziehen = rechts lenken
+  });
+  const release = (e) => {
+    if (e.pointerId !== finger) return;
+    finger = null;
+    input.analogSteer = null;
+    knob.style.display = base.style.display = 'none';
+  };
+  zone.addEventListener('pointerup', release);
+  zone.addEventListener('pointercancel', release);
+  zone.addEventListener('lostpointercapture', release);
 }
 
 class Input {
   constructor() {
     this.held = new Set(); this.pressed = new Set();
+    this.analogSteer = null;   // −1 … 1 von der Lenkfläche, null = keine Wischlenkung aktiv
     const gameKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'];
     window.addEventListener('keydown', e => {
       if (gameKeys.includes(e.code)) e.preventDefault();
@@ -1207,13 +1293,107 @@ class Input {
     document.addEventListener('webkitfullscreenchange', refocus);
     window.addEventListener('pointerdown', refocus);
     window.addEventListener('keyup', e => this.held.delete(e.code));
-    window.addEventListener('blur', () => { this.held.clear(); this.pressed.clear(); });
+    window.addEventListener('blur', () => { this.held.clear(); this.pressed.clear(); this.analogSteer = null; });
   }
   // für die Bildschirmknöpfe
   press(code) { if (!this.held.has(code)) this.pressed.add(code); this.held.add(code); }
   release(code) { this.held.delete(code); }
   isDown(...codes) { return codes.some(c => this.held.has(c)); }
   wasPressed(code) { const had = this.pressed.has(code); this.pressed.delete(code); return had; }
+}
+
+// =====================================================================
+// Raketenbasis: Bausteine
+// =====================================================================
+function addMesh(group, geometry, material, x, y, z) {
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.position.set(x, y, z);
+  mesh.castShadow = !(material instanceof THREE.MeshBasicMaterial);
+  group.add(mesh);
+  return mesh;
+}
+
+// Rakete mit Startrampe und Startturm, h = Höhe in Metern
+function makeRocket(h, accent) {
+  const g = new THREE.Group();
+  const r = h * 0.055;
+  const white = Mat.pbr(grey(0.92), { metal: 0.25, rough: 0.35 });
+  const dark = Mat.pbr(grey(0.08), { metal: 0.7, rough: 0.45 });
+  const color = Mat.pbr(accent, { metal: 0.3, rough: 0.4 });
+  const steel = Mat.pbr(grey(0.45), { metal: 0.9, rough: 0.45 });
+  const glow = Mat.glow(rgb(0.3, 0.8, 1), 3);
+
+  // Startrampe mit Leuchtring
+  addMesh(g, new THREE.CylinderGeometry(r * 4, r * 4.4, 1.5, 48), Mat.pbr(grey(0.22), { metal: 0.6, rough: 0.6 }), 0, 0.75, 0);
+  addMesh(g, new THREE.TorusGeometry(r * 4.2, 0.25, 8, 64), glow, 0, 1.55, 0).rotation.x = Math.PI / 2;
+  const y0 = 1.5;
+  // Triebwerke
+  for (let k = 0; k < 3; k++) {
+    const a = k * Math.PI * 2 / 3;
+    addMesh(g, new THREE.CylinderGeometry(r * 0.22, r * 0.42, h * 0.05, 24), dark, Math.cos(a) * r * 0.45, y0 + h * 0.025, Math.sin(a) * r * 0.45);
+  }
+  const b = y0 + h * 0.05;
+  addMesh(g, new THREE.CylinderGeometry(r, r, h * 0.1, 40), dark, 0, b + h * 0.05, 0);              // Triebwerksteil
+  addMesh(g, new THREE.CylinderGeometry(r, r, h * 0.56, 40), white, 0, b + h * 0.38, 0);            // Rumpf
+  for (const y of [0.24, 0.5]) addMesh(g, new THREE.CylinderGeometry(r * 1.01, r * 1.01, h * 0.025, 40), color, 0, b + h * y, 0);
+  addMesh(g, new THREE.CylinderGeometry(r * 0.8, r, h * 0.04, 40), white, 0, b + h * 0.68, 0);      // Übergang
+  addMesh(g, new THREE.CylinderGeometry(r * 0.8, r * 0.8, h * 0.1, 40), white, 0, b + h * 0.75, 0); // Oberstufe
+  addMesh(g, new THREE.ConeGeometry(r * 0.8, h * 0.15, 40), color, 0, b + h * 0.875, 0);            // Spitze
+  for (let k = 0; k < 4; k++) {                                                                     // Flossen
+    const a = k * Math.PI / 2;
+    const fin = addMesh(g, new THREE.BoxGeometry(0.25, h * 0.12, r * 1.3), color, Math.cos(a) * r * 1.45, b + h * 0.07, Math.sin(a) * r * 1.45);
+    fin.rotation.y = -a;
+  }
+  // Startturm aus Stahlträgern
+  const tx = r * 3, tw = Math.max(1.2, r * 0.7), th = h * 0.85;
+  for (const [dx, dz] of [[-tw, -tw], [tw, -tw], [-tw, tw], [tw, tw]]) {
+    addMesh(g, new THREE.BoxGeometry(0.35, th, 0.35), steel, tx + dx, y0 + th / 2, dz);
+  }
+  for (let y = y0 + 4; y < y0 + th; y += 5) {
+    addMesh(g, new THREE.BoxGeometry(tw * 2, 0.2, 0.2), steel, tx, y, -tw);
+    addMesh(g, new THREE.BoxGeometry(tw * 2, 0.2, 0.2), steel, tx, y, tw);
+    addMesh(g, new THREE.BoxGeometry(0.2, 0.2, tw * 2), steel, tx - tw, y, 0);
+    addMesh(g, new THREE.BoxGeometry(0.2, 0.2, tw * 2), steel, tx + tw, y, 0);
+  }
+  addMesh(g, new THREE.BoxGeometry(tx - r * 0.8, 0.6, 1.2), steel, (tx + r * 0.8) / 2 - tw / 2, b + h * 0.72, 0);   // Zugangsarm
+  addMesh(g, new THREE.SphereGeometry(0.5, 12, 8), Mat.glow(rgb(1, 0.15, 0.1), 5), tx, y0 + th + 0.6, 0);          // Warnlicht
+  return g;
+}
+
+// Kuppel mit Leuchtring und Fensterband
+function makeDome(r) {
+  const g = new THREE.Group();
+  addMesh(g, new THREE.SphereGeometry(r, 48, 24, 0, Math.PI * 2, 0, Math.PI / 2), Mat.pbr(rgb(0.75, 0.8, 0.88), { metal: 0.8, rough: 0.25 }), 0, 0, 0);
+  addMesh(g, new THREE.TorusGeometry(r * 0.72, 0.18, 8, 64), Mat.glow(rgb(1, 0.7, 0.3), 3), 0, r * 0.68, 0).rotation.x = Math.PI / 2;
+  addMesh(g, new THREE.TorusGeometry(r, 0.3, 8, 64), Mat.glow(rgb(0.3, 0.8, 1), 2.5), 0, 0.3, 0).rotation.x = Math.PI / 2;
+  return g;
+}
+
+// Radarschüssel auf einem Mast
+function makeDish(size) {
+  const g = new THREE.Group();
+  const white = Mat.pbr(grey(0.88), { metal: 0.3, rough: 0.4 });
+  white.side = THREE.DoubleSide;
+  addMesh(g, new THREE.CylinderGeometry(0.6, 1.2, size, 12), Mat.pbr(grey(0.35), { metal: 0.8, rough: 0.4 }), 0, size / 2, 0);
+  const profile = [];
+  for (let i = 0; i <= 12; i++) { const t = i / 12; profile.push(new THREE.Vector2(t * size * 0.8, t * t * size * 0.3)); }
+  const dish = addMesh(g, new THREE.LatheGeometry(profile, 40), white, 0, size + 1, 0);
+  dish.rotation.x = -0.7;
+  addMesh(g, new THREE.SphereGeometry(0.4, 12, 8), Mat.glow(rgb(1, 0.2, 0.15), 5), 0, size + size * 0.35, -size * 0.25);
+  return g;
+}
+
+// Treibstofftank (Kugel auf Beinen)
+function makeTank(r, accent) {
+  const g = new THREE.Group();
+  const steel = Mat.pbr(grey(0.4), { metal: 0.9, rough: 0.4 });
+  addMesh(g, new THREE.SphereGeometry(r, 32, 16), Mat.pbr(grey(0.9), { metal: 0.3, rough: 0.35 }), 0, r + 3, 0);
+  addMesh(g, new THREE.CylinderGeometry(r * 1.005, r * 1.005, r * 0.18, 32), Mat.pbr(accent, { metal: 0.3, rough: 0.4 }), 0, r + 3, 0);
+  for (let k = 0; k < 4; k++) {
+    const a = k * Math.PI / 2 + Math.PI / 4;
+    addMesh(g, new THREE.CylinderGeometry(0.25, 0.25, r + 3, 8), steel, Math.cos(a) * r * 0.7, (r + 3) / 2, Math.sin(a) * r * 0.7);
+  }
+  return g;
 }
 
 // =====================================================================
@@ -1230,18 +1410,18 @@ class Game {
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, IS_TOUCH ? 1.5 : 2));
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.setSize(view.w, view.h);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.0;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    document.body.prepend(this.renderer.domElement);
+    stage.prepend(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.3, 2500);
+    this.camera = new THREE.PerspectiveCamera(62, view.w / view.h, 0.3, 4000);
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.35, 0.4, 1.1);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(view.w, view.h), 0.35, 0.4, 1.1);
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
 
@@ -1260,7 +1440,8 @@ class Game {
     Object.assign(this, {
       mode: 'track', speed: 0, steer: 0, pitch: 0,
       groundX: 0, groundZ: 0, yaw: 0,
-      trackIndex: 0, trackS: 3, trackD: 0, trackPsi: 0, warning: false,
+      trackIndex: 0, trackS: 3, trackD: 0, trackPsi: 0, trackMove: 0, moveYaw: 0, gapAhead: false,
+      drifting: false, driftCharge: 0, boostTime: 0, autoSuction: false, flipUsed: false, wallFlash: 0,
       airCenter: V(), airVelocity: V(), airOrientation: new THREE.Quaternion(),
       flipRemaining: 0, jumpBurst: 0, attachCooldown: 0, crashCooldown: 0,
       overlayHidden: false, lastPhase: 'ready',
@@ -1269,14 +1450,19 @@ class Game {
     });
     this.updatePose();
 
-    window.addEventListener('resize', () => this.resize());
+    // iOS meldet die neue Größe beim Drehen manchmal verspätet → zusätzlich kurz danach nachmessen
+    const relayout = () => { this.resize(); setTimeout(() => this.resize(), 350); };
+    window.addEventListener('resize', relayout);
+    window.addEventListener('orientationchange', relayout);
+    window.visualViewport?.addEventListener('resize', relayout);
     this.last = performance.now();
     document.getElementById('loading').remove();
     this.renderer.setAnimationLoop(() => this.frame());
   }
 
   resize() {
-    const w = window.innerWidth, h = window.innerHeight;
+    layoutStage();
+    const w = view.w, h = view.h;
     this.renderer.setSize(w, h);
     this.composer.setSize(w, h);
     this.camera.aspect = w / h;
@@ -1286,14 +1472,16 @@ class Game {
 
   // ---------------- Welt ----------------
   buildWorld() {
-    const night = rgb(0.015, 0.02, 0.035);
-    this.scene.background = night;
-    this.scene.fog = new THREE.Fog(night, 220, 1200);
+    // Weltraum: schwarzer Himmel, Sterne, Erde und Sonne
+    const space = rgb(0.006, 0.008, 0.02);
+    this.scene.background = space;
+    this.scene.fog = new THREE.Fog(rgb(0.02, 0.025, 0.05), 320, 1900);
+    this.buildSky();
 
-    // Umgebungsbild für Spiegelungen: Nachthimmel mit hellen "Studio-Lampen"
+    // Umgebungsbild für Spiegelungen: dunkler Himmel mit hellen Lichtflächen und bläulichem Erdschein
     const env = canvasTexture(1024, 512, (ctx, w, h) => {
       const g = ctx.createLinearGradient(0, 0, 0, h);
-      g.addColorStop(0, 'rgb(13,15,23)'); g.addColorStop(0.5, 'rgb(33,36,46)'); g.addColorStop(1, 'rgb(5,5,8)');
+      g.addColorStop(0, 'rgb(8,10,20)'); g.addColorStop(0.45, 'rgb(28,40,70)'); g.addColorStop(0.55, 'rgb(40,40,48)'); g.addColorStop(1, 'rgb(6,6,8)');
       ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
       for (const [x, y, rw, rh] of [[80, 122, 200, 60], [430, 88, 300, 34], [780, 112, 150, 80], [300, 186, 70, 26]]) {
         for (let k = 5; k >= 0; k--) {
@@ -1307,56 +1495,219 @@ class Game {
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     this.scene.environment = pmrem.fromEquirectangular(env).texture;
 
-    // Boden: dunkler Asphalt mit feinem Raster
+    // Boden: grauer Mondstaub mit Kratern
     const rng = seededRandom(11);
-    const gridTex = canvasTexture(512, 512, (ctx) => {
-      ctx.fillStyle = 'rgb(18,18,18)'; ctx.fillRect(0, 0, 512, 512);
-      for (let i = 0; i < 6000; i++) {
-        const v = Math.floor(rnd(rng, 8, 33));
-        ctx.fillStyle = `rgba(${v},${v},${v},0.6)`;
-        const sz = rnd(rng, 1, 3);
-        ctx.fillRect(rnd(rng, 0, 512), rnd(rng, 0, 512), sz, sz);
+    const groundTex = canvasTexture(1024, 1024, (ctx) => {
+      ctx.fillStyle = 'rgb(30,30,34)'; ctx.fillRect(0, 0, 1024, 1024);
+      for (let i = 0; i < 20000; i++) {
+        const v = Math.floor(rnd(rng, 18, 50));
+        ctx.fillStyle = `rgba(${v},${v},${v + 4},0.5)`;
+        const sz = rnd(rng, 1, 4);
+        ctx.fillRect(rnd(rng, 0, 1024), rnd(rng, 0, 1024), sz, sz);
       }
-      ctx.fillStyle = 'rgb(43,43,43)';
-      ctx.fillRect(0, 509, 512, 3); ctx.fillRect(0, 0, 3, 512);
+      for (let i = 0; i < 26; i++) {
+        const x = rnd(rng, 0, 1024), y = rnd(rng, 0, 1024), r = rnd(rng, 8, 60);
+        const g = ctx.createRadialGradient(x, y, r * 0.2, x, y, r);
+        g.addColorStop(0, 'rgba(20,20,24,0.7)'); g.addColorStop(0.8, 'rgba(30,30,34,0.3)'); g.addColorStop(0.92, 'rgba(110,110,116,0.45)'); g.addColorStop(1, 'rgba(46,46,50,0)');
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+      }
     });
-    gridTex.wrapS = gridTex.wrapT = THREE.RepeatWrapping;
-    gridTex.repeat.set(400, 400);
-    gridTex.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000), new THREE.MeshStandardMaterial({ map: gridTex, roughness: 0.85 }));
+    groundTex.wrapS = groundTex.wrapT = THREE.RepeatWrapping;
+    groundTex.repeat.set(60, 60);
+    groundTex.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000), new THREE.MeshStandardMaterial({ map: groundTex, roughness: 0.95 }));
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
     this.scene.add(ground);
 
     this.buildTracks();
     this.placeParkedCars();
-    this.placeLightPoles();
+    this.placeScenery();
 
-    this.scene.add(new THREE.AmbientLight(rgb(0.6, 0.7, 1), 0.12));
-    const moon = new THREE.DirectionalLight(rgb(0.85, 0.9, 1), 1.6);
-    moon.castShadow = true;
-    moon.shadow.mapSize.set(IS_TOUCH ? 1024 : 2048, IS_TOUCH ? 1024 : 2048);
-    Object.assign(moon.shadow.camera, { left: -14, right: 14, top: 14, bottom: -14, near: 1, far: 160 });
-    moon.shadow.bias = -0.0004;
-    moon.shadow.normalBias = 0.03;
-    this.scene.add(moon, moon.target);
-    this.moon = moon;
+    this.scene.add(new THREE.HemisphereLight(rgb(0.45, 0.55, 0.9), rgb(0.08, 0.08, 0.1), 0.25));
+    const sun = new THREE.DirectionalLight(rgb(1, 0.96, 0.9), 1.5);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(IS_TOUCH ? 1024 : 2048, IS_TOUCH ? 1024 : 2048);
+    Object.assign(sun.shadow.camera, { left: -14, right: 14, top: 14, bottom: -14, near: 1, far: 160 });
+    sun.shadow.bias = -0.0004;
+    sun.shadow.normalBias = 0.03;
+    this.scene.add(sun, sun.target);
+    this.moon = sun;
+  }
+
+  // Sterne, Erde und Sonne am Himmel (vom Nebel nicht betroffen)
+  buildSky() {
+    const rng = seededRandom(99);
+    const count = 4000, pos = new Float32Array(count * 3), col = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      const u = rng() * 2 - 1, phi = rng() * Math.PI * 2, r = 3000;
+      const y = Math.abs(u) * 0.95 + 0.05;           // nur über dem Horizont
+      const k = Math.sqrt(1 - y * y);
+      pos.set([Math.cos(phi) * k * r, y * r, Math.sin(phi) * k * r], i * 3);
+      const b = 0.4 + rng() * 0.6, warm = rng();
+      col.set([b * (0.85 + warm * 0.15), b * 0.9, b * (1.1 - warm * 0.2)], i * 3);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    this.stars = new THREE.Points(geo, new THREE.PointsMaterial({ size: 1.6, sizeAttenuation: false, vertexColors: true, fog: false }));
+    this.scene.add(this.stars);
+
+    // Erde: blaue Kugel mit Kontinenten und Wolken, schräg beleuchtet
+    const erng = seededRandom(5);
+    const earthTex = canvasTexture(1024, 512, (ctx, w, h) => {
+      ctx.fillStyle = '#123a7a'; ctx.fillRect(0, 0, w, h);
+      for (let i = 0; i < 40; i++) {
+        ctx.fillStyle = ['#2f6b3a', '#4a7d3c', '#8a7a4a'][i % 3];
+        ctx.beginPath();
+        ctx.ellipse(rnd(erng, 0, w), rnd(erng, h * 0.15, h * 0.85), rnd(erng, 20, 90), rnd(erng, 15, 60), rnd(erng, 0, 3), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      for (let i = 0; i < 160; i++) {
+        ctx.fillStyle = `rgba(255,255,255,${rnd(erng, 0.25, 0.7)})`;
+        ctx.beginPath();
+        ctx.ellipse(rnd(erng, 0, w), rnd(erng, 0, h), rnd(erng, 10, 70), rnd(erng, 3, 12), rnd(erng, -0.3, 0.3), 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+    const earth = new THREE.Mesh(new THREE.SphereGeometry(420, 64, 32),
+      new THREE.MeshStandardMaterial({ map: earthTex, roughness: 0.8, emissive: rgb(0.05, 0.12, 0.3), emissiveIntensity: 0.6, fog: false }));
+    earth.position.set(-2200, 420, -1500);
+    earth.rotation.set(0.3, 1.2, 0.2);
+    const glow = new THREE.Mesh(new THREE.SphereGeometry(445, 64, 32),
+      new THREE.MeshBasicMaterial({ color: rgb(0.3, 0.6, 1).multiplyScalar(0.6), transparent: true, opacity: 0.35,
+                                    side: THREE.BackSide, blending: THREE.AdditiveBlending, fog: false, depthWrite: false }));
+    glow.position.copy(earth.position);
+    // eigenes Licht nur für die Erde (seitlich, damit eine Tag-Nacht-Grenze entsteht)
+    const earthLight = new THREE.PointLight(0xffffff, 6, 0, 0);
+    earthLight.position.set(-600, 1100, -600);
+    this.scene.add(earth, glow, earthLight);
+
+    // Sonne: heller Fleck in Richtung des Sonnenlichts
+    const sunTex = canvasTexture(128, 128, (ctx) => {
+      const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+      g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.15, 'rgba(255,245,220,0.9)'); g.addColorStop(1, 'rgba(255,200,120,0)');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, 128, 128);
+    });
+    const sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: sunTex, color: new THREE.Color(3, 3, 3), fog: false,
+                                                                  blending: THREE.AdditiveBlending, depthWrite: false }));
+    sunSprite.scale.set(260, 260, 1);
+    sunSprite.position.set(20, 50, 25).normalize().multiplyScalar(2800);
+    this.scene.add(sunSprite);
+  }
+
+  // Raketenbasis: Raketen auf Startrampen, Kuppeln, Radarschüsseln, Tanks, Leucht-Pylonen
+  placeScenery() {
+    const rng = seededRandom(21);
+    // Abstand zur Strecke (waagerecht) prüfen, damit nichts auf oder über der Bahn steht
+    const pts = [];
+    for (const t of this.tracks) for (let i = 0; i < t.samples.length; i += 4) pts.push(t.samples[i].p);
+    const clearance = (x, z) => Math.min(...pts.map(p => Math.hypot(p.x - x, p.z - z)));
+    // Platz neben der Strecke suchen: zufälliger Streckenpunkt + seitlicher Versatz
+    const spotNear = (minGap, maxGap, needed) => {
+      for (let tries = 0; tries < 400; tries++) {
+        const t = this.tracks[Math.floor(rng() * 4)];
+        const f = t.samples[Math.floor(rng() * t.samples.length)];
+        const side = rng() < 0.5 ? -1 : 1, off = rnd(rng, minGap, maxGap);
+        const x = f.p.x + f.r.x * side * off, z = f.p.z + f.r.z * side * off;
+        if (clearance(x, z) > needed && !this.sceneryTaken?.some(([sx, sz, sr]) => Math.hypot(sx - x, sz - z) < sr + needed)) {
+          (this.sceneryTaken ??= []).push([x, z, needed]);
+          return [x, z];
+        }
+      }
+      return null;
+    };
+    const accents = [rgb(0.85, 0.15, 0.1), rgb(0.1, 0.4, 0.9), rgb(0.95, 0.6, 0.1), rgb(0.2, 0.8, 0.6)];
+
+    [80, 60, 95, 50, 70, 85].forEach((h, i) => {
+      const spot = spotNear(45, 140, h * 0.32);
+      if (!spot) return;
+      const rocket = makeRocket(h, accents[i % accents.length]);
+      rocket.position.set(spot[0], 0, spot[1]);
+      rocket.rotation.y = rnd(rng, 0, Math.PI * 2);
+      this.scene.add(rocket);
+      this.obstacles.push(new Obstacle([spot], h * 0.055 * 4.4, h));
+    });
+    for (let i = 0; i < 6; i++) {
+      const r = rnd(rng, 10, 22);
+      const spot = spotNear(30, 160, r + 12);
+      if (!spot) continue;
+      const dome = makeDome(r);
+      dome.position.set(spot[0], 0, spot[1]);
+      this.scene.add(dome);
+      this.obstacles.push(new Obstacle([spot], r, r));
+    }
+    for (let i = 0; i < 4; i++) {
+      const spot = spotNear(30, 160, 18);
+      if (!spot) continue;
+      const dish = makeDish(rnd(rng, 7, 12));
+      dish.position.set(spot[0], 0, spot[1]);
+      dish.rotation.y = rnd(rng, 0, Math.PI * 2);
+      this.scene.add(dish);
+      this.obstacles.push(new Obstacle([spot], 2, 20));
+    }
+    for (let i = 0; i < 5; i++) {
+      const spot = spotNear(25, 140, 14);
+      if (!spot) continue;
+      const tank = makeTank(rnd(rng, 5, 8), accents[i % accents.length]);
+      tank.position.set(spot[0], 0, spot[1]);
+      this.scene.add(tank);
+      this.obstacles.push(new Obstacle([spot], 7, 18));
+    }
+
+    // Leucht-Pylonen entlang der Strecke
+    const pylons = [];
+    while (pylons.length < 70) {
+      const spot = spotNear(14, 40, 9);
+      if (!spot) break;
+      pylons.push(spot);
+      this.obstacles.push(new Obstacle([spot], 0.7, 16));
+    }
+    const column = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.45, 0.7, 16, 6), Mat.pbr(grey(0.25), { metal: 0.9, rough: 0.35 }), pylons.length);
+    const ring = new THREE.InstancedMesh(new THREE.TorusGeometry(1.1, 0.12, 8, 24), Mat.glow(rgb(0.3, 0.8, 1), 3.5), pylons.length * 2);
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion().setFromAxisAngle(X, Math.PI / 2), one = V(1, 1, 1);
+    pylons.forEach(([x, z], i) => {
+      column.setMatrixAt(i, m.compose(V(x, 8, z), new THREE.Quaternion(), one));
+      ring.setMatrixAt(2 * i, m.compose(V(x, 13.5, z), q, one));
+      ring.setMatrixAt(2 * i + 1, m.compose(V(x, 15.2, z), q, one));
+    });
+    column.castShadow = true;
+    this.scene.add(column, ring);
   }
 
   buildTracks() {
     const base = 0.06;
-    // Abschnitt 1 – Bodenbahn: Start-Ziel-Gerade, Looping, Steilwand mit Überhang, Schanze
+    // Bausteine: Kurve (a Grad, Radius r, Querneigung) und S-Kurve (hin und zurück, Richtung bleibt gleich)
+    const T = (a, r, bank) => [
+      { length: Math.PI * r * Math.abs(a) / 360, yaw: a / 2, bankTo: bank },
+      { length: Math.PI * r * Math.abs(a) / 360, yaw: a / 2, bankTo: 0 }
+    ];
+    const S = (a, r, bank) => [
+      { length: Math.PI * r * Math.abs(a) / 180, yaw: a, bankTo: bank },
+      { length: Math.PI * r * Math.abs(a) / 90, yaw: -2 * a, bankTo: -bank },
+      { length: Math.PI * r * Math.abs(a) / 180, yaw: a, bankTo: 0 }
+    ];
+
+    // Abschnitt 1 – Bodenbahn: S-Kurve, Looping, Kurvenkombination, Steilwand mit Überhang, Schikane, Schanze
     const wall = 280;
     const ground1 = new Track(V(0, base, 0), 0, [
-      { length: 250 },                                              // 0 Start-Ziel-Gerade
-      { length: 2 * Math.PI * 18, pitch: 360, shift: 18 },          // 1 Looping
-      { length: 150 },                                              // 2
-      { length: 60, yaw: 180 * 60 / wall, bankTo: 90 },             // 3 Steilwand …
-      { length: 80, yaw: 180 * 80 / wall, bankTo: 115 },            // 4 … mit Überhang
-      { length: 80, yaw: 180 * 80 / wall, bankTo: 90 },             // 5
-      { length: 60, yaw: 180 * 60 / wall, bankTo: 0 },              // 6
-      { length: 100 },                                              // 7
-      { length: 50, pitch: 25 }                                     // 8 Schanze
+      { length: 160 },                                              // 0 Start-Ziel-Gerade
+      ...S(45, 55, 10),                                             // 1–3 S-Kurve
+      { length: 60 },                                               // 4
+      { length: 2 * Math.PI * 18, pitch: 360, shift: 19 },          // 5 Looping
+      { length: 70 },                                               // 6
+      ...T(-90, 45, -14),                                           // 7–8 Rechtskurve
+      { length: 40 },                                               // 9
+      ...T(90, 45, 14),                                             // 10–11 Linkskurve
+      { length: 30 },                                               // 12
+      { length: 60, yaw: 180 * 60 / wall, bankTo: 90 },             // 13 Steilwand …
+      { length: 80, yaw: 180 * 80 / wall, bankTo: 115 },            // 14 … mit Überhang
+      { length: 80, yaw: 180 * 80 / wall, bankTo: 90 },             // 15
+      { length: 60, yaw: 180 * 60 / wall, bankTo: 0 },              // 16
+      { length: 50 },                                               // 17
+      ...S(-32, 40, -10),                                           // 18–20 Schikane
+      { length: 60 },                                               // 21
+      { length: 50, pitch: 25 }                                     // 22 Schanze
     ], { slantedSupports: false });
 
     // jeder weitere Abschnitt beginnt nach einer Lücke, die man fliegend überwinden muss
@@ -1370,57 +1721,81 @@ class Game {
     // Abschnitt 2 – Himmelsbahn in 22 m Höhe
     const a2 = after(ground1, 90, 22);
     const sky1 = new Track(a2.p, a2.heading, [
-      { length: 400 },
-      { length: Math.PI * 70 / 2, yaw: 90, bankTo: 30 }, { length: Math.PI * 70 / 2, yaw: 90, bankTo: 0 },
-      { length: 200 }
+      { length: 220 },                                              // 0 Landezone
+      ...S(35, 70, 16),                                             // 1–3
+      { length: 80 },                                               // 4
+      ...T(180, 60, 30),                                            // 5–6 Kehre
+      { length: 150 }                                               // 7
     ], { sky: true });
 
     // Abschnitt 3 – Höhenbahn in 37 m Höhe: höher als die Himmelsbahn, also hochfliegen
     const a3 = after(sky1, 90, 37);
     const sky2 = new Track(a3.p, a3.heading, [
-      { length: 150 },                                              // Landezone
-      { length: 2 * Math.PI * 16, pitch: 360, shift: 14 },          // Looping in der Luft
-      { length: 120 },
-      { length: Math.PI * 50 / 2, yaw: -90, bankTo: -25 }, { length: Math.PI * 50 / 2, yaw: -90, bankTo: 0 },
-      { length: 100 }
+      { length: 150 },                                              // 0 Landezone
+      { length: 2 * Math.PI * 16, pitch: 360, shift: 19 },          // 1 Looping in der Luft
+      { length: 60 },                                               // 2
+      ...S(-30, 50, -14),                                           // 3–5
+      { length: 50 },                                               // 6
+      ...T(-180, 50, -28),                                          // 7–8 Kehre
+      { length: 100 }                                               // 9
     ], { sky: true });
 
-    // Abschnitt 4 – Landebahn: herunterfliegen, Haarnadel, zurück zur Start-Ziel-Linie
+    // Abschnitt 4 – Landebahn: herunterfliegen, Haarnadel, S-Kurve, zurück zur Start-Ziel-Linie
     const a4 = after(sky2, 50, base);
-    const radius = Math.max(30, a4.p.x / 2);
-    const turnZ = Math.max(a4.p.z, 0) + 80;
-    const ground2 = new Track(a4.p, a4.heading, [
-      { length: turnZ - a4.p.z },
-      { length: Math.PI * radius / 2, yaw: -90, bankTo: -10 }, { length: Math.PI * radius / 2, yaw: -90, bankTo: 0 },
-      { length: turnZ + 2 }                                         // endet knapp hinter der Startlinie
+    const radius = Math.max(35, a4.p.x / 2);
+    const turnZ = Math.max(a4.p.z, 0) + 260;   // genug Platz für S-Kurve und Zielgerade
+    const landing = (finish) => new Track(a4.p, a4.heading, [
+      { length: turnZ - a4.p.z },                                   // 0 Landezone
+      ...T(-180, radius, -12),                                      // 1–2 Haarnadel
+      { length: 40 },                                               // 3
+      ...S(35, 55, 10),                                             // 4–6
+      { length: finish }                                            // 7 bis zur Startlinie
     ]);
+    // Länge des letzten Stücks so anpassen, dass die Bahn genau an der Startlinie endet
+    let finish = turnZ;
+    let ground2 = landing(finish);
+    finish += ground2.end().p.z + 2;
+    ground2 = landing(finish);
 
     // frei befahrbarer Steilwand-Turm abseits der Strecke
-    const tower = new Track(V(220, base, 80), 0, [{ length: 90 }, { length: 18 * 2.1, pitch: 120 }]);
+    const tower = new Track(V(380, base, 260), 0, [{ length: 90 }, { length: 18 * 2.1, pitch: 120 }]);
 
     this.tracks = [ground1, sky1, sky2, ground2, tower];
     for (const t of this.tracks) this.obstacles.push(...t.supportObstacles());
     this.race.checkpoints = [
-      { name: 'LOOPING', track: 0, s: ground1.pieceStarts[2] },
-      { name: 'STEILWAND', track: 0, s: ground1.pieceStarts[7] },
+      { name: 'LOOPING', track: 0, s: ground1.pieceStarts[6] },
+      { name: 'STEILWAND', track: 0, s: ground1.pieceStarts[17] },
       { name: 'HIMMELSBAHN', track: 1, s: 0 },
       { name: 'HÖHENBAHN', track: 2, s: 0 },
       { name: 'LANDUNG', track: 3, s: 0 }
     ];
 
+    // Texturen: Fahrbahn mit Plattenfugen, Randsteine in Streifen
     const rng = seededRandom(7);
-    const concrete = canvasTexture(512, 512, (ctx) => {
-      ctx.fillStyle = 'rgb(102,102,102)'; ctx.fillRect(0, 0, 512, 512);
+    const road = canvasTexture(512, 512, (ctx) => {
+      ctx.fillStyle = 'rgb(38,41,48)'; ctx.fillRect(0, 0, 512, 512);
       for (let i = 0; i < 9000; i++) {
-        const v = Math.floor(rnd(rng, 0.30, 0.52) * 255);
-        ctx.fillStyle = `rgba(${v},${v},${v},${rnd(rng, 0.15, 0.5)})`;
-        const sz = rnd(rng, 1, 6);
-        ctx.beginPath(); ctx.ellipse(rnd(rng, 0, 512), rnd(rng, 0, 512), sz / 2, sz / 2, 0, 0, Math.PI * 2); ctx.fill();
+        const v = Math.floor(rnd(rng, 28, 60));
+        ctx.fillStyle = `rgba(${v},${v + 3},${v + 8},${rnd(rng, 0.2, 0.5)})`;
+        ctx.fillRect(rnd(rng, 0, 512), rnd(rng, 0, 512), rnd(rng, 1, 4), rnd(rng, 1, 4));
       }
+      ctx.fillStyle = 'rgba(20,22,28,0.8)';
+      ctx.fillRect(0, 0, 512, 3);                     // Plattenfuge quer
     });
-    concrete.wrapS = concrete.wrapT = THREE.RepeatWrapping;
-    concrete.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
-    for (const t of this.tracks) this.scene.add(t.makeNode(concrete));
+    road.wrapS = road.wrapT = THREE.RepeatWrapping;
+    road.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
+    const kerbTexture = (color) => {
+      const t = canvasTexture(16, 64, (ctx) => {
+        ctx.fillStyle = color; ctx.fillRect(0, 0, 16, 32);
+        ctx.fillStyle = '#f2f2f2'; ctx.fillRect(0, 32, 16, 32);
+      });
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      t.repeat.set(1, 4);                            // ein Farbwechsel alle 1,25 m
+      t.magFilter = THREE.NearestFilter;
+      return t;
+    };
+    const tex = { road, kerbRed: kerbTexture('#d8262a'), kerbBlue: kerbTexture('#2a8cff') };
+    for (const t of this.tracks) this.scene.add(t.makeNode(tex));
   }
 
   placeParkedCars() {
@@ -1435,8 +1810,8 @@ class Game {
       this.obstacles.push(Obstacle.car(x, z, yaw, kind, y));
     };
     // [Bahn, Stück, Abstand ab Stückanfang, seitlich]
-    const spots = [[0, 0, 150, -3], [0, 2, 80, 2.5], [0, 7, 40, -2], [1, 0, 300, 2.5], [1, 0, 370, -3],
-                   [1, 3, 100, 2], [2, 2, 60, -2.5], [2, 0, 120, 2.5], [3, 0, 90, 3], [3, 3, 50, -3]];
+    const spots = [[0, 0, 110, -3.5], [0, 6, 35, 3], [0, 21, 25, -3], [1, 0, 160, -3], [1, 0, 200, 3.5],
+                   [1, 7, 90, 2.5], [2, 2, 35, -3], [3, 0, 140, 3.5], [3, 3, 20, -3]];
     spots.forEach(([track, piece, offset, d], i) => {
       const t = this.tracks[track];
       const f = t.frame(t.pieceStarts[piece] + offset);
@@ -1444,7 +1819,7 @@ class Game {
       place(kinds[i % kinds.length], p.x, p.z, Math.atan2(-f.t.x, -f.t.z) + rnd(rng, -0.4, 0.4), p.y);
     });
     let placed = 0;
-    while (placed < 35) {
+    while (placed < 10) {
       const x = rnd(rng, -500, 500), z = rnd(rng, -900, 400);
       const p = V(x, 0, z);
       if (this.tracks.some(t => { const hit = t.nearest(p); return hit && Math.abs(hit.d) < t.halfWidth + 6; })) continue;
@@ -1452,25 +1827,6 @@ class Game {
       place(kinds[Math.floor(rng() * kinds.length)], x, z, rnd(rng, 0, Math.PI * 2));
       placed++;
     }
-  }
-
-  placeLightPoles() {
-    const rng = seededRandom(3);
-    const positions = [];
-    while (positions.length < 90) {
-      const x = rnd(rng, -800, 800), z = rnd(rng, -1000, 600);
-      if (this.tracks.some(t => t.nearest(V(x, 0, z)))) continue;
-      positions.push([x, z]);
-      this.obstacles.push(new Obstacle([[x, z]], 0.3, 9));
-    }
-    const steel = Mat.pbr(grey(0.3), { metal: 1, rough: 0.5 });
-    const poles = new THREE.InstancedMesh(unitCylinder, steel, positions.length);
-    const heads = new THREE.InstancedMesh(new THREE.BoxGeometry(1.2, 0.12, 0.4), Mat.glow(rgb(0.85, 0.92, 1), 4), positions.length);
-    positions.forEach(([x, z], i) => {
-      poles.setMatrixAt(i, beamMatrix(V(x, 0, z), V(x, 9, z), 0.12));
-      heads.setMatrixAt(i, new THREE.Matrix4().makeTranslation(x, 9.05, z));
-    });
-    this.scene.add(poles, heads);
   }
 
   // ---------------- Spielschleife ----------------
@@ -1492,11 +1848,15 @@ class Game {
   readControls() {
     const i = this.input;
     const left = i.isDown('KeyA', 'ArrowLeft'), right = i.isDown('KeyD', 'ArrowRight');
+    let steerTarget = (left ? 1 : 0) - (right ? 1 : 0);
+    if (i.analogSteer !== null) steerTarget = i.analogSteer;   // Wischlenkung auf dem Handy
+    const brake = i.isDown('KeyS', 'ArrowDown');
+    // Handy: im Rennen gibt das Auto automatisch Gas
+    const autoGas = IS_TOUCH && this.race.phase === 'running' && !brake;
     return {
-      gas: i.isDown('KeyW', 'ArrowUp'), brake: i.isDown('KeyS', 'ArrowDown'),
-      steerTarget: (left ? 1 : 0) - (right ? 1 : 0),
+      gas: i.isDown('KeyW', 'ArrowUp') || autoGas, brake, steerTarget,
       jetsHeld: i.isDown('Space'), jump: i.wasPressed('Space'), flip: i.wasPressed('KeyK'),
-      suction: i.isDown('ShiftLeft', 'ShiftRight')
+      drift: i.isDown('ShiftLeft', 'ShiftRight', 'KeyX')
     };
   }
 
@@ -1511,9 +1871,12 @@ class Game {
     if ((this.race.phase === 'ready' || this.race.phase === 'finished') && Math.abs(this.speed) > 2) this.overlayHidden = true;
 
     let c = this.readControls();
-    if (this.race.controlsLocked) c = { gas: false, brake: false, steerTarget: 0, jetsHeld: false, jump: false, flip: false, suction: false };
+    if (this.race.controlsLocked) c = { gas: false, brake: false, steerTarget: 0, jetsHeld: false, jump: false, flip: false, drift: false };
     this.controls = c;
-    this.steer += (c.steerTarget - this.steer) * Math.min(1, dt * 8);
+    this.steer += (c.steerTarget - this.steer) * Math.min(1, dt * (this.input.analogSteer !== null ? 14 : 8));
+    this.drifting = false;
+    this.autoSuction = false;
+    this.boostTime = Math.max(0, this.boostTime - dt);
     this.attachCooldown = Math.max(0, this.attachCooldown - dt);
     this.jumpBurst = Math.max(0, this.jumpBurst - dt);
     this.warning = false;
@@ -1537,9 +1900,12 @@ class Game {
     car.root.quaternion.copy(this.carOrientation);
     car.body.rotation.set(this.pitch, 0, 0);
     car.updateWheels(this.speed, this.steer, dt);
-    const yawJets = this.mode === 'air' && Math.abs(this.steer) > 0.15 ? Math.sign(this.steer) : 0;
-    car.setJets(this.mode === 'air' && (c.jetsHeld || this.jumpBurst > 0), c.gas && this.speed >= 0, this.flipRemaining > 0, yawJets);
-    car.setSuction(c.suction && this.mode !== 'air');
+    // seitliche Düsen: beim Drehen in der Luft und beim Driften
+    const yawJets = (this.mode === 'air' || this.drifting) && Math.abs(this.steer) > 0.15 ? Math.sign(this.steer) : 0;
+    car.setJets(this.mode === 'air' && (c.jetsHeld || this.jumpBurst > 0), (c.gas && this.speed >= 0) || this.boostTime > 0,
+                this.flipRemaining > 0, yawJets);
+    car.setSuction(this.autoSuction);
+    this.wallFlash = Math.max(0, this.wallFlash - dt);
     car.root.updateMatrixWorld(true);
     car.emitJets(dt);
 
@@ -1550,7 +1916,8 @@ class Game {
     const r = this.race;
     return {
       kmh: Math.round(Math.abs(this.mode === 'air' ? this.airVelocity.length() : this.speed) * 3.6),
-      suction: this.controls?.suction ?? false, warning: this.warning, gapAhead: this.mode === 'track' && this.gapAhead,
+      suction: this.autoSuction, gapAhead: this.mode === 'track' && this.gapAhead,
+      drifting: this.drifting, driftCharge: this.driftCharge, boost: this.boostTime > 0,
       phase: r.phase, countdown: r.countdown, raceTime: r.raceTime, lap: r.lap, laps: r.laps,
       nextTarget: r.nextTarget, lapTimes: r.lapTimes, bestTotal: r.bestTotal, bestLap: r.bestLap,
       message: r.message, messageAge: r.messageAge, newRecord: r.newRecord, overlayHidden: this.overlayHidden,
@@ -1582,18 +1949,52 @@ class Game {
     }
   }
 
-  steeringRate() {
-    const grip = Math.min(1, Math.abs(this.speed) / 6);
+  // Wie schnell sich das Auto drehen kann: bei Tempo begrenzt (Querbeschleunigung), beim Driften deutlich mehr
+  steeringRate(drifting) {
+    const v = Math.abs(this.speed);
+    const grip = Math.min(1, v / 5);
     const direction = this.speed >= 0 ? 1 : -1;
-    return this.steer * 1.8 * grip / (1 + Math.abs(this.speed) / 35) * direction;
+    const maxRate = drifting ? Math.min(2.7, 85 / Math.max(v, 1)) : Math.min(2.1, 36 / Math.max(v, 1));
+    return this.steer * maxRate * grip * direction;
+  }
+
+  // Drift: Taste halten + lenken. Seitliche Düsen drehen das Auto quer; loslassen gibt einen Boost.
+  updateDrift(c, dt) {
+    const drifting = c.drift && this.speed > 12 && Math.abs(this.steer) > 0.2;
+    if (drifting) {
+      this.driftCharge += dt;
+    } else if (this.driftCharge > 0) {
+      if (this.driftCharge > 0.5) {
+        const level = this.driftCharge > 1.5 ? 2 : 1;
+        this.speed = Math.min(this.speed + 9 * level, this.maxSpeed + 12);
+        this.boostTime = 0.5 * level;
+        this.race.show(level === 2 ? 'SUPER-BOOST!' : 'BOOST!');
+      }
+      this.driftCharge = 0;
+    }
+    this.drifting = drifting;
+    return drifting;
+  }
+
+  // Fahrtrichtung folgt der Ausrichtung des Autos; beim Driften rutscht es (Bewegung hängt hinterher)
+  slide(heading, move, drifting, dt) {
+    const grip = drifting ? 2.2 : 12;
+    move += (heading - move) * Math.min(1, grip * dt);
+    const slip = heading - move;
+    this.speed -= this.speed * Math.abs(Math.sin(slip)) * (drifting ? 0.35 : 1.2) * dt;   // Reifen radieren
+    if (this.boostTime > 0) this.speed = Math.min(this.speed + 25 * dt, this.maxSpeed + 12);
+    return move;
   }
 
   stepGround(c, dt) {
     this.applyThrottle(c, dt);
-    this.yaw += this.steeringRate() * dt;
+    const drifting = this.updateDrift(c, dt);
+    this.yaw += this.steeringRate(drifting) * dt;
+    this.moveYaw = this.slide(this.yaw, this.moveYaw, drifting, dt);
     const fx = -Math.sin(this.yaw), fz = -Math.cos(this.yaw);
-    this.groundX = clamp(this.groundX + fx * this.speed * dt, -this.worldLimit, this.worldLimit);
-    this.groundZ = clamp(this.groundZ + fz * this.speed * dt, -this.worldLimit, this.worldLimit);
+    const mx = -Math.sin(this.moveYaw), mz = -Math.cos(this.moveYaw);
+    this.groundX = clamp(this.groundX + mx * this.speed * dt, -this.worldLimit, this.worldLimit);
+    this.groundZ = clamp(this.groundZ + mz * this.speed * dt, -this.worldLimit, this.worldLimit);
 
     for (const push of [this.collide(this.groundX, this.groundZ, fx, fz, 0), this.collideWithTrackSlabs(this.groundX, this.groundZ)]) {
       if (!push) continue;
@@ -1608,10 +2009,10 @@ class Game {
     for (let i = 0; i < this.tracks.length; i++) {
       const track = this.tracks[i];
       const hit = track.nearest(p);
-      if (!hit || !hit.frame.groundLevel || Math.abs(hit.d) >= track.halfWidth - 0.3 || Math.abs(hit.h) >= 0.6) continue;
+      if (!hit || !hit.frame.groundLevel || Math.abs(hit.d) >= track.halfWidth - 1 || Math.abs(hit.h) >= 0.6) continue;
       const f3 = V(fx, 0, fz);
-      Object.assign(this, { trackIndex: i, trackS: hit.s, trackD: hit.d,
-                            trackPsi: Math.atan2(-f3.dot(hit.frame.r), f3.dot(hit.frame.t)), mode: 'track' });
+      const psi = Math.atan2(-f3.dot(hit.frame.r), f3.dot(hit.frame.t));
+      Object.assign(this, { trackIndex: i, trackS: hit.s, trackD: hit.d, trackPsi: psi, trackMove: psi, mode: 'track' });
       return;
     }
   }
@@ -1619,13 +2020,19 @@ class Game {
   stepTrack(c, dt) {
     const track = this.tracks[this.trackIndex];
     let f = track.frame(this.trackS);
-    const forward = f.t.clone().multiplyScalar(Math.cos(this.trackPsi)).addScaledVector(f.r, -Math.sin(this.trackPsi));
+    const moveDir = f.t.clone().multiplyScalar(Math.cos(this.trackMove)).addScaledVector(f.r, -Math.sin(this.trackMove));
 
     this.applyThrottle(c, dt, f.groundLevel);
-    this.speed += -this.gravity * forward.y * dt;   // bergauf langsamer, bergab schneller
-    this.trackPsi += this.steeringRate() * dt;
-    this.trackS += this.speed * Math.cos(this.trackPsi) * dt;
-    this.trackD -= this.speed * Math.sin(this.trackPsi) * dt;
+    this.speed += -this.gravity * moveDir.y * dt;   // bergauf langsamer, bergab schneller
+    const drifting = this.updateDrift(c, dt);
+    this.trackPsi += this.steeringRate(drifting) * dt;
+    this.trackMove = this.slide(this.trackPsi, this.trackMove, drifting, dt);
+    const ds = this.speed * Math.cos(this.trackMove) * dt;
+    this.trackS += ds;
+    this.trackD -= this.speed * Math.sin(this.trackMove) * dt;
+    // Die Bahn biegt sich unter dem Auto weg: Ohne Lenken fährt es geradeaus weiter (Richtung Wand)
+    this.trackPsi += f.kappaG * ds;
+    this.trackMove += f.kappaG * ds;
 
     if (track.closed) {
       this.trackS %= track.length;
@@ -1637,15 +2044,18 @@ class Game {
     }
     f = track.frame(this.trackS);
 
-    // Leitplanken auf flachen Bodenstücken
-    const railLimit = track.halfWidth - 0.9;
-    if (track.rails && f.groundLevel && Math.abs(this.trackD) > railLimit) {
+    // Begrenzungsmauern wie bei Mario Kart: abprallen, Tempo verlieren
+    const wallLimit = track.halfWidth - 1.0;
+    if (track.rails && Math.abs(this.trackD) > wallLimit) {
       const side = Math.sign(this.trackD);
-      this.trackD = side * railLimit;
-      const outward = -Math.sin(this.trackPsi) * side;
+      this.trackD = side * wallLimit;
+      const outward = -Math.sin(this.trackMove) * side;
       if (outward > 0) {
-        this.speed *= 1 - 0.6 * Math.abs(Math.sin(this.trackPsi));
-        this.trackPsi *= 0.3;   // an der Planke entlang ausrichten
+        const hit = Math.abs(Math.sin(this.trackMove));
+        this.speed *= 1 - 0.7 * hit;
+        this.trackMove = -this.trackMove * 0.25;   // leicht von der Wand weg
+        this.trackPsi *= 0.5;
+        if (hit * Math.abs(this.speed) > 6) this.wallFlash = 0.25;
       }
     }
 
@@ -1662,15 +2072,15 @@ class Game {
 
     if (Math.abs(this.trackD) > track.halfWidth) return this.leaveTrack();
 
-    // Haftung: Fliehkraft + Schwerkraft (+ Ansaugen)
-    const cosPsi = Math.cos(this.trackPsi);
-    const pressure = this.speed * this.speed * f.kappa * cosPsi * cosPsi + this.gravity * f.n.y;
-    this.warning = !f.groundLevel && pressure < 5;
+    // Haftung: Fliehkraft + Schwerkraft; die Saugdüsen helfen automatisch
+    const cosMove = Math.cos(this.trackMove);
+    const pressure = this.speed * this.speed * f.kappa * cosMove * cosMove + this.gravity * f.n.y;
+    this.autoSuction = !f.groundLevel && pressure < 5;
     // Hinweis kurz vor dem Ende eines Abschnitts, wenn danach eine Lücke kommt
     const cp = this.race.checkpoints[this.race.nextCheckpoint];
     this.gapAhead = this.race.phase === 'running' && cp && cp.track !== this.trackIndex && cp.s === 0 &&
                     !track.closed && track.length - this.trackS < 220;
-    if (pressure + (c.suction ? this.suctionStrength : 0) < -0.5) return this.leaveTrack();
+    if (pressure + this.suctionStrength < -0.5) return this.leaveTrack();
 
     this.race.progress(this.trackIndex, this.trackS);
 
@@ -1687,8 +2097,8 @@ class Game {
       const hit = this.tracks[i].nearest(this.carPosition);
       if (!hit || Math.abs(hit.d) >= this.tracks[i].halfWidth || Math.abs(hit.h) >= 1.0) continue;
       const heading = forward.clone().addScaledVector(hit.frame.n, -forward.dot(hit.frame.n)).normalize();
-      Object.assign(this, { trackIndex: i, trackS: hit.s, trackD: hit.d,
-                            trackPsi: Math.atan2(-heading.dot(hit.frame.r), heading.dot(hit.frame.t)) });
+      const psi = Math.atan2(-heading.dot(hit.frame.r), heading.dot(hit.frame.t));
+      Object.assign(this, { trackIndex: i, trackS: hit.s, trackD: hit.d, trackPsi: psi, trackMove: psi });
       this.race.progress(i, hit.s);
       return true;
     }
@@ -1699,8 +2109,8 @@ class Game {
   respawn(penalty) {
     const r = this.race.respawnPoint;
     if (penalty) this.race.fall();
-    Object.assign(this, { mode: 'track', trackIndex: r.track, trackS: r.s + 2, trackD: 0, trackPsi: 0,
-                          speed: 0, flipRemaining: 0, steer: 0 });
+    Object.assign(this, { mode: 'track', trackIndex: r.track, trackS: r.s + 2, trackD: 0, trackPsi: 0, trackMove: 0,
+                          speed: 0, flipRemaining: 0, steer: 0, driftCharge: 0, boostTime: 0 });
     this.updatePose();
     // Kamera sofort hinter das Auto setzen
     const forward = V(0, 0, -1).applyQuaternion(this.carOrientation);
@@ -1713,11 +2123,29 @@ class Game {
     const up = V(0, 1, 0).applyQuaternion(this.airOrientation);
     const forward = V(0, 0, -1).applyQuaternion(this.airOrientation);
     this.airVelocity.y -= this.gravity * dt;
-    if (c.jetsHeld) {
-      this.airVelocity.y += this.hoverThrust * dt;   // Düsen drücken immer senkrecht nach oben
-      if (c.gas) this.airVelocity.addScaledVector(V(forward.x, 0, forward.z).normalize(), 12 * dt);
+    if (c.jetsHeld) this.airVelocity.y += this.hoverThrust * dt;   // Düsen drücken immer senkrecht nach oben
+    const flat = V(forward.x, 0, forward.z);
+    if (flat.lengthSq() > 0.01) flat.normalize();
+    // agil: Gas schiebt kräftig nach vorne, Bremse bremst in der Luft stark ab
+    if (c.gas) this.airVelocity.addScaledVector(flat, 22 * dt);
+    if (c.brake) {
+      const hv = Math.hypot(this.airVelocity.x, this.airVelocity.z);
+      if (hv > 0.1) {
+        const k = Math.max(0, hv - 40 * dt) / hv;
+        this.airVelocity.x *= k; this.airVelocity.z *= k;
+      }
     }
-    this.airOrientation.premultiply(qAxis(up, this.steer * 2.2 * dt));
+    // Kickflip: K oder ein zweiter Druck auf Sprung in der Luft
+    if ((c.flip || c.jump) && !this.flipUsed && this.flipRemaining <= 0) {
+      this.flipRemaining = 2 * Math.PI;
+      this.flipUsed = true;
+    }
+    // drehen mit den Seitendüsen; die Flugrichtung dreht ein Stück mit (wendiger)
+    const yawStep = this.steer * 3.0 * dt;
+    this.airOrientation.premultiply(qAxis(up, yawStep));
+    const turn = qAxis(Y, yawStep * 0.7);
+    const horizontal = V(this.airVelocity.x, 0, this.airVelocity.z).applyQuaternion(turn);
+    this.airVelocity.x = horizontal.x; this.airVelocity.z = horizontal.z;
     // Lagestabilisierung: außer beim Kickflip richtet sich das Auto in der Luft langsam waagerecht aus
     if (this.flipRemaining <= 0 && Math.hypot(forward.x, forward.z) > 0.2) {
       const level = new THREE.Quaternion().setFromAxisAngle(Y, Math.atan2(-forward.x, -forward.z));
@@ -1730,8 +2158,10 @@ class Game {
     }
     this.airOrientation.normalize();
     // leichter Luftwiderstand, damit man nicht endlos weiterfliegt
-    const drag = Math.exp(-0.05 * dt);
+    const drag = Math.exp(-0.1 * dt);
     this.airVelocity.x *= drag; this.airVelocity.z *= drag;
+    const hv = Math.hypot(this.airVelocity.x, this.airVelocity.z);
+    if (hv > 115) { this.airVelocity.x *= 115 / hv; this.airVelocity.z *= 115 / hv; }
     this.airCenter.addScaledVector(this.airVelocity, dt);
     if (this.airCenter.y > 150) { this.airCenter.y = 150; this.airVelocity.y = Math.min(this.airVelocity.y, 0); }
 
@@ -1755,14 +2185,14 @@ class Game {
       if (!hit) continue;
       const n = hit.frame.n;
       if (Math.abs(hit.d) >= track.halfWidth || hit.h <= -0.3 || hit.h >= 1.3) continue;
-      if (this.airVelocity.dot(n) >= 0 || !(n.y > 0.2 || c.suction)) continue;
+      if (this.airVelocity.dot(n) >= 0) continue;   // landen klappt überall, die Saugdüsen halten das Auto
       const planeVelocity = this.airVelocity.clone().addScaledVector(n, -this.airVelocity.dot(n));
       let heading = forward.clone().addScaledVector(n, -forward.dot(n));
       if (heading.length() < 0.1) heading = planeVelocity.length() > 0.1 ? planeVelocity.clone() : hit.frame.t.clone();
       heading.normalize();
-      Object.assign(this, { trackIndex: i, trackS: hit.s, trackD: hit.d,
-                            trackPsi: Math.atan2(-heading.dot(hit.frame.r), heading.dot(hit.frame.t)),
-                            speed: planeVelocity.dot(heading), flipRemaining: 0, mode: 'track' });
+      const psi = Math.atan2(-heading.dot(hit.frame.r), heading.dot(hit.frame.t));
+      Object.assign(this, { trackIndex: i, trackS: hit.s, trackD: clamp(hit.d, -track.halfWidth + 1.1, track.halfWidth - 1.1),
+                            trackPsi: psi, trackMove: psi, speed: planeVelocity.dot(heading), flipRemaining: 0, mode: 'track' });
       return;
     }
   }
@@ -1774,7 +2204,8 @@ class Game {
     const forward = V(0, 0, -1).applyQuaternion(this.carOrientation);
     this.airCenter.copy(this.carPosition).addScaledVector(up, this.centerHeight);
     this.airVelocity.copy(forward).multiplyScalar(this.speed).addScaledVector(up, upSpeed);
-    Object.assign(this, { flipRemaining: flip ? 2 * Math.PI : 0, jumpBurst: 0.3, attachCooldown: 0.25, mode: 'air' });
+    Object.assign(this, { flipRemaining: flip ? 2 * Math.PI : 0, flipUsed: flip, jumpBurst: 0.3, attachCooldown: 0.25,
+                          driftCharge: 0, mode: 'air' });
   }
 
   leaveTrack() {
@@ -1783,7 +2214,7 @@ class Game {
     const f = track.frame(this.trackS);
     const forward = V(0, 0, -1).applyQuaternion(this.carOrientation);
     if (f.groundLevel && this.carPosition.y < 0.5) {
-      this.yaw = Math.atan2(-forward.x, -forward.z);
+      this.yaw = this.moveYaw = Math.atan2(-forward.x, -forward.z);
       this.groundX = this.carPosition.x; this.groundZ = this.carPosition.z;
       this.mode = 'ground';
     } else {
@@ -1791,7 +2222,7 @@ class Game {
       this.airOrientation.copy(this.carOrientation);
       this.airCenter.copy(this.carPosition).addScaledVector(up, this.centerHeight);
       this.airVelocity.copy(forward).multiplyScalar(this.speed);
-      Object.assign(this, { flipRemaining: 0, attachCooldown: 0.4, mode: 'air' });
+      Object.assign(this, { flipRemaining: 0, flipUsed: false, attachCooldown: 0.4, mode: 'air' });
     }
   }
 
@@ -1802,7 +2233,7 @@ class Game {
       if (Math.hypot(this.airVelocity.x, this.airVelocity.z) > 0.5) { fx = this.airVelocity.x; fz = this.airVelocity.z; }
       else { fx = -Math.sin(this.yaw); fz = -Math.cos(this.yaw); }
     }
-    this.yaw = Math.atan2(-fx, -fz);
+    this.yaw = this.moveYaw = Math.atan2(-fx, -fz);
     this.speed = this.airVelocity.x * -Math.sin(this.yaw) + this.airVelocity.z * -Math.cos(this.yaw);
     this.groundX = this.airCenter.x; this.groundZ = this.airCenter.z;
     this.flipRemaining = 0;
@@ -1810,7 +2241,8 @@ class Game {
   }
 
   reset() {
-    Object.assign(this, { mode: 'track', trackIndex: 0, trackS: 3, trackD: 0, trackPsi: 0, speed: 0, flipRemaining: 0 });
+    Object.assign(this, { mode: 'track', trackIndex: 0, trackS: 3, trackD: 0, trackPsi: 0, trackMove: 0, speed: 0,
+                          flipRemaining: 0, driftCharge: 0, boostTime: 0 });
   }
 
   updatePose() {
@@ -1894,6 +2326,7 @@ class Game {
 
     this.moon.position.copy(this.carPosition).add(V(20, 50, 25));
     this.moon.target.position.copy(this.carPosition);
+    this.stars.position.copy(this.camera.position);
   }
 }
 
