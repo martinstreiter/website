@@ -763,6 +763,26 @@ class Track {
     return group;
   }
 
+  // Fläche auf der Fahrbahn von s0 bis s1, seitlich d0…d1 (Turbo-Felder, Startlinie); Textur wiederholt sich alle vLength Meter
+  patch(s0, s1, d0, d1, lift, vLength = s1 - s0) {
+    const pos = [], uv = [], idx = [];
+    const rows = Math.max(1, Math.ceil(s1 - s0));
+    for (let i = 0; i <= rows; i++) {
+      const s = s0 + (s1 - s0) * i / rows, f = this.frame(s);
+      for (const [d, u] of [[d0, 0], [d1, 1]]) {
+        const p = f.p.clone().addScaledVector(f.r, d).addScaledVector(f.n, lift);
+        pos.push(p.x, p.y, p.z);
+        uv.push(u, (s - s0) / vLength);
+      }
+      if (i < rows) { const a = 2 * i; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setIndex(idx);
+    return geo;
+  }
+
   // filter: nur Stücke zeichnen, deren beide Stützpunkte die Bedingung erfüllen
   strip(a, b, filter = null) {
     const pos = [], nor = [], uv = [], idx = [];
@@ -1152,6 +1172,15 @@ class HUD {
     T('GOATSTER', 44, 80, 28, 5.5, 2.0);
     T('BESTZEIT  ' + (s.bestTotal > 0 ? formatTime(s.bestTotal) : '-:--,--'), w - 44, 58, 11, 3.5, 1.3, 'right', dim);
     T('BESTE RUNDE  ' + (s.bestLap > 0 ? formatTime(s.bestLap) : '-:--,--'), w - 44, 82, 11, 3.5, 1.3, 'right', dim);
+    if (s.ghost > 0) T('GEIST  ' + formatTime(s.ghost), w - 44, 106, 11, 3.5, 1.3, 'right', cyan);
+    {
+      // Düsentank: außerhalb der Flugzonen reicht er nur für einen Hüpfer
+      const bw = IS_TOUCH ? 120 : 170, bx = w - 44 - bw, by = IS_TOUCH ? 174 : h - 30;
+      ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fillRect(bx, by, bw, 5);
+      ctx.fillStyle = s.flightZone ? cyan : s.jet < 0.25 ? red : '#ffffff';
+      ctx.fillRect(bx, by, bw * (s.flightZone ? 1 : s.jet), 5);
+      T(s.flightZone ? 'FLUGZONE' : 'DÜSEN', w - 44, by + 19, 9, 3, 1.2, 'right', s.flightZone ? cyan : dim);
+    }
     if (IS_TOUCH) {
       // Smartphone: Knöpfe unten, deshalb Karte und Tempo nach oben
       this.drawMap(44, 150, 120, s.car);
@@ -1163,7 +1192,7 @@ class HUD {
       T(String(s.kmh), w - 44, h - 72, 54, 2.2, 3.6, 'right');
       T('KM/H', w - 44, h - 40, 12, 4, 1.4, 'right', dim);
       const help = ['W/↑ GAS    S/↓ BREMSE    A D/← → LENKEN    ⇧ ODER X HALTEN = DRIFTEN, LOSLASSEN = BOOST',
-                    'LEERTASTE SPRINGEN, HALTEN = FLIEGEN, IN DER LUFT NOCHMAL = KICKFLIP',
+                    'LEERTASTE SPRINGEN    HALTEN = DÜSEN, FLIEGEN NUR ÜBER LÜCKEN    2X = KICKFLIP',
                     'R ZUM CHECKPOINT    ENTER RENNEN    F VOLLBILD'];
       help.forEach((line, i) => T(line, 44, h - 76 + i * 22, 10, 3, 1.2, 'left', dim));
     }
@@ -1381,8 +1410,10 @@ class Game {
     Object.assign(this, {
       gravity: 22, maxSpeed: 112, launchAcceleration: 30, brakeDeceleration: 45,
       jumpSpeed: 11, flipJumpSpeed: 13, flipDuration: 0.9, hoverThrust: 34,
-      suctionStrength: 40, centerHeight: 0.6, worldLimit: 1900
+      suctionStrength: 40, centerHeight: 0.6, worldLimit: 1900, jetCapacity: 0.25
     });
+    Object.assign(this, { jetFuel: 1, inFlightZone: false, jetsActive: false, flightZones: [],
+                          ghost: null, ghostRec: [], ghostLapCount: 0, ghostIndex: 0, ghostCar: null, rockets: [], rovers: [] });
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, IS_TOUCH ? 1.5 : 2));
@@ -1418,6 +1449,7 @@ class Game {
       mode: 'track', speed: 0, steer: 0, pitch: 0,
       groundX: 0, groundZ: 0, yaw: 0,
       trackIndex: 0, trackS: 3, trackD: 0, trackPsi: 0, trackMove: 0, moveYaw: 0, gapAhead: false,
+      roll: 0, driftBlend: 0, cameraLook: 0, cameraBoost: 0, time: 0,
       drifting: false, driftDir: 0, driftCharge: 0, boostTime: 0, autoSuction: false, corneringSuction: false, flipUsed: false, wallFlash: 0,
       airCenter: V(), airVelocity: V(), airOrientation: new THREE.Quaternion(),
       flipRemaining: 0, jumpBurst: 0, attachCooldown: 0, crashCooldown: 0,
@@ -1498,8 +1530,10 @@ class Game {
     this.scene.add(ground);
 
     this.buildTracks();
+    this.decorateTracks();
     this.placeParkedCars();
     this.placeScenery();
+    this.placeLandscape();
 
     this.scene.add(new THREE.HemisphereLight(rgb(0.45, 0.55, 0.9), rgb(0.08, 0.08, 0.1), 0.25));
     const sun = new THREE.DirectionalLight(rgb(1, 0.96, 0.9), 1.5);
@@ -1571,6 +1605,58 @@ class Game {
     sunSprite.scale.set(260, 260, 1);
     sunSprite.position.set(20, 50, 25).normalize().multiplyScalar(2800);
     this.scene.add(sunSprite);
+
+    // helle Einzelsterne
+    const big = new Float32Array(300 * 3);
+    for (let i = 0; i < 300; i++) {
+      const y = rng() * 0.95 + 0.05, phi = rng() * Math.PI * 2, k = Math.sqrt(1 - y * y);
+      big.set([Math.cos(phi) * k * 3000, y * 3000, Math.sin(phi) * k * 3000], i * 3);
+    }
+    const bigGeo = new THREE.BufferGeometry();
+    bigGeo.setAttribute('position', new THREE.BufferAttribute(big, 3));
+    this.stars.add(new THREE.Points(bigGeo, new THREE.PointsMaterial({ size: 3.2, sizeAttenuation: false, color: rgb(0.85, 0.92, 1), fog: false })));
+
+    // Milchstraße: farbige Nebelwolken als Band quer über den Himmel
+    const nrng = seededRandom(31);
+    const nebulaTex = canvasTexture(2048, 1024, (ctx, w, h) => {
+      ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h);
+      ctx.globalCompositeOperation = 'lighter';
+      const colors = ['70,90,255', '150,70,220', '40,170,200', '230,90,140', '255,255,255'];
+      for (let i = 0; i < 260; i++) {
+        const x = rnd(nrng, 0, w), spread = (nrng() + nrng() + nrng() - 1.5) * h * 0.2;
+        const y = h * 0.5 + Math.sin(x / w * Math.PI * 4) * h * 0.05 + spread, r = rnd(nrng, 40, 170);
+        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+        g.addColorStop(0, `rgba(${colors[i % colors.length]},${rnd(nrng, 0.03, 0.09)})`);
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g;
+        for (const dx of [-w, 0, w]) { ctx.setTransform(1, 0, 0, 1, dx, 0); ctx.fillRect(x - r, y - r, 2 * r, 2 * r); }
+      }
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+    });
+    const nebula = new THREE.Mesh(new THREE.SphereGeometry(3300, 48, 24),
+      new THREE.MeshBasicMaterial({ map: nebulaTex, side: THREE.BackSide, blending: THREE.AdditiveBlending, transparent: true,
+                                    depthWrite: false, fog: false }));
+    nebula.rotation.set(1.0, 0.6, 0);
+    this.stars.add(nebula);
+
+    // Ringplanet am Himmel gegenüber der Erde
+    const prng = seededRandom(8);
+    const bands = canvasTexture(16, 128, (ctx) => {
+      for (let y = 0; y < 128; y += 4) {
+        const v = rnd(prng, 0.75, 1.1);
+        ctx.fillStyle = `rgb(${Math.min(255, 215 * v)},${Math.min(255, 160 * v)},${110 * v})`;
+        ctx.fillRect(0, y, 16, 4);
+      }
+    });
+    const planet = new THREE.Mesh(new THREE.SphereGeometry(130, 48, 24),
+      new THREE.MeshStandardMaterial({ map: bands, roughness: 0.9, emissive: rgb(0.3, 0.15, 0.08), emissiveIntensity: 0.5, fog: false }));
+    planet.position.set(2100, 900, 1300);
+    planet.rotation.set(0.35, 0, 0.3);
+    const rings = new THREE.Mesh(new THREE.RingGeometry(170, 290, 96),
+      new THREE.MeshBasicMaterial({ color: rgb(0.8, 0.7, 0.55), transparent: true, opacity: 0.4, side: THREE.DoubleSide, fog: false, depthWrite: false }));
+    rings.position.copy(planet.position);
+    rings.rotation.set(Math.PI / 2 + 0.35, 0.3, 0);
+    this.scene.add(planet, rings);
   }
 
   // Raketenbasis: Raketen auf Startrampen, Kuppeln, Radarschüsseln, Tanks, Leucht-Pylonen
@@ -1620,6 +1706,7 @@ class Game {
       const dish = makeDish(rnd(rng, 7, 12));
       dish.position.set(spot[0], 0, spot[1]);
       dish.rotation.y = rnd(rng, 0, Math.PI * 2);
+      this.spinners.push(dish);
       this.scene.add(dish);
       this.obstacles.push(new Obstacle([spot], 2, 20));
     }
@@ -1775,6 +1862,533 @@ class Game {
     for (const t of this.tracks) this.scene.add(t.makeNode(tex));
   }
 
+  // Turbo-Felder, Start-Ziel-Linie, Tore an den Checkpoints, Pfeiltafeln in den Kurven, Leitringe über den Lücken
+  decorateTracks() {
+    const [ground1, sky1, sky2, ground2] = this.tracks;
+    this.pulsing = []; this.spinners = [];
+    const pulse = (color, intensity, phase) => {
+      const material = Mat.glow(color, intensity);
+      this.pulsing.push({ material, base: material.color.clone(), phase });
+      return material;
+    };
+    const overlay = (material) => Object.assign(material, { transparent: true, depthWrite: false, side: THREE.DoubleSide,
+                                                            polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+
+    // Turbo-Felder: laufende Leuchtpfeile, die beim Überfahren beschleunigen  [Bahn, Stück, Abstand, seitlich]
+    this.turboTexture = canvasTexture(128, 128, (ctx) => {
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 15;
+      for (const y of [58, 122]) { ctx.beginPath(); ctx.moveTo(12, y); ctx.lineTo(64, y - 42); ctx.lineTo(116, y); ctx.stroke(); }
+    });
+    this.turboTexture.wrapT = THREE.RepeatWrapping;
+    const turbo = overlay(new THREE.MeshBasicMaterial({ map: this.turboTexture, color: rgb(1, 0.72, 0.1).multiplyScalar(2.6) }));
+    this.boostPads = [[0, 0, 125, 3], [0, 4, 8, 0], [0, 21, 12, 2.5], [1, 7, 100, -2.5], [2, 9, 45, 0], [3, 7, 30, 0]].map(([track, piece, offset, d]) => {
+      const t = this.tracks[track], pad = { track, s: t.pieceStarts[piece] + offset, d, length: 14, half: 2.4 };
+      this.scene.add(new THREE.Mesh(t.patch(pad.s, pad.s + pad.length, d - pad.half, d + pad.half, 0.05, 4), turbo));
+      return pad;
+    });
+
+    // Start-Ziel-Linie im Schachbrettmuster
+    const checker = canvasTexture(64, 16, (ctx) => {
+      for (let x = 0; x < 16; x++) for (let y = 0; y < 4; y++) { ctx.fillStyle = (x + y) % 2 ? '#f4f4f4' : '#0c0c10'; ctx.fillRect(x * 4, y * 4, 4, 4); }
+    });
+    checker.magFilter = THREE.NearestFilter;
+    this.scene.add(new THREE.Mesh(ground1.patch(7, 10, -6, 6, 0.045), overlay(new THREE.MeshBasicMaterial({ map: checker, color: grey(0.85) }))));
+
+    // Tore über der Bahn: am Start und an jedem Checkpoint
+    const steel = Mat.pbr(grey(0.3), { metal: 0.9, rough: 0.35 });
+    const gate = (track, s, color, phase) => {
+      const f = track.frame(s), glow = pulse(color, 3, phase), group = new THREE.Group();
+      const box = (w, h, x, y, material, depth = 0.8) => {
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, depth), material);
+        mesh.position.set(x, y, 0);
+        group.add(mesh);
+      };
+      for (const side of [-1, 1]) { box(0.8, 10.6, side * 8.6, 4.7, steel); box(0.25, 8.4, side * 8.15, 4.6, glow, 0.95); }
+      box(18, 1.3, 0, 9.65, steel);
+      box(16.2, 0.3, 0, 8.85, glow, 0.95);
+      group.position.copy(f.p);
+      group.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(f.r, f.n, f.t.clone().negate()));
+      this.scene.add(group);
+      if (f.groundLevel) for (const side of [-1, 1]) {
+        const p = f.p.clone().addScaledVector(f.r, side * 8.6);
+        this.obstacles.push(new Obstacle([[p.x, p.z]], 0.6, 10));
+      }
+    };
+    gate(ground1, 8.5, grey(0.55), 0);
+    this.race.checkpoints.forEach((cp, i) => {
+      const t = this.tracks[cp.track];
+      gate(t, Math.max(cp.s, 14), t.sky ? rgb(0.2, 0.75, 1) : rgb(1, 0.45, 0.1), i + 1);
+    });
+
+    // Pfeiltafeln auf der Außenmauer enger Kurven
+    const arrow = (dir) => canvasTexture(128, 64, (ctx) => {
+      ctx.fillStyle = '#0c0c10'; ctx.fillRect(0, 0, 128, 64);
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 11;
+      for (const x of [28, 64, 100]) { ctx.beginPath(); ctx.moveTo(x - dir * 12, 10); ctx.lineTo(x + dir * 12, 32); ctx.lineTo(x - dir * 12, 54); ctx.stroke(); }
+    });
+    const boards = { 1: [], [-1]: [] };
+    for (const t of [ground1, sky1, sky2, ground2]) {
+      for (let i = 0; i < t.samples.length; i += 12) {
+        const f = t.samples[i];
+        if (Math.abs(f.kappaG) < 0.012 || f.n.y < 0.8) continue;
+        const turn = Math.sign(f.kappaG);
+        const p = f.p.clone().addScaledVector(f.r, -turn * (t.halfWidth + 0.25)).addScaledVector(f.n, 1.95);
+        boards[turn].push(new THREE.Matrix4().makeBasis(f.r, f.n, f.t.clone().negate()).setPosition(p));
+      }
+    }
+    for (const turn of [1, -1]) {
+      if (!boards[turn].length) continue;
+      const material = new THREE.MeshBasicMaterial({ map: arrow(turn), color: rgb(1, 0.5, 0.1).multiplyScalar(2.2), side: THREE.DoubleSide });
+      const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(3.4, 1.7), material, boards[turn].length);
+      boards[turn].forEach((m, i) => mesh.setMatrixAt(i, m));
+      this.scene.add(mesh);
+    }
+
+    // Leitringe: zeigen in den Lücken den Flugweg zum nächsten Abschnitt
+    const ringGeometry = new THREE.TorusGeometry(9, 0.3, 8, 48);
+    [[ground1, sky1], [sky1, sky2], [sky2, ground2]].forEach(([from, to], i) => {
+      const a = from.end().p, b = to.samples[0].p, dir = b.clone().sub(a).normalize();
+      this.flightZones.push({ a, b, top: Math.max(a.y, b.y) + 24 });
+      [0.3, 0.62].forEach((k, j) => {
+        const ring = new THREE.Mesh(ringGeometry, pulse(rgb(1, 0.8, 0.2), 3, i * 2 + j * 1.5));
+        ring.position.copy(a).lerp(b, k).add(V(0, 3 + 26 * k * (1 - k), 0));
+        ring.quaternion.setFromUnitVectors(Z, dir);
+        this.scene.add(ring);
+      });
+    });
+  }
+
+  // Landschaft: Kraterberge am Horizont und Felsbrocken auf der Ebene
+  placeLandscape() {
+    const rng = seededRandom(77);
+    const pts = [];
+    for (const t of this.tracks) for (let i = 0; i < t.samples.length; i += 8) pts.push(t.samples[i].p);
+    const cx = pts.reduce((a, p) => a + p.x, 0) / pts.length, cz = pts.reduce((a, p) => a + p.z, 0) / pts.length;
+    const reach = Math.max(...pts.map(p => Math.hypot(p.x - cx, p.z - cz)));
+    const rock = new THREE.MeshStandardMaterial({ color: grey(0.25), roughness: 0.95, flatShading: true });
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+
+    // Gebirge rings um die Basis: Höhenfeld aus Rauschen, wird nach außen höher
+    const hash = (x, y) => { const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return s - Math.floor(s); };
+    const noise = (x, y) => {
+      const xi = Math.floor(x), yi = Math.floor(y), fx = x - xi, fy = y - yi;
+      const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+      const top = hash(xi, yi) + (hash(xi + 1, yi) - hash(xi, yi)) * sx;
+      const bottom = hash(xi, yi + 1) + (hash(xi + 1, yi + 1) - hash(xi, yi + 1)) * sx;
+      return top + (bottom - top) * sy;
+    };
+    const fbm = (x, y) => noise(x, y) * 0.5 + noise(x * 2.1, y * 2.1) * 0.27 + noise(x * 4.3, y * 4.3) * 0.15 + noise(x * 8.7, y * 8.7) * 0.08;
+    const inner = reach + 260, rings = 36, segments = 180;
+    this.land = { x: cx, z: cz, r: inner + 30 };
+    const tp = [], tc = [], ti = [];
+    for (let j = 0; j <= rings; j++) {
+      const u = j / rings, radius = inner + 1300 * u, ramp = Math.min(1, u / 0.3) ** 2;
+      for (let i = 0; i < segments; i++) {
+        const angle = i / segments * Math.PI * 2, x = cx + Math.cos(angle) * radius, z = cz + Math.sin(angle) * radius;
+        const ridge = 1 - Math.abs(2 * fbm(x / 320 + 40, z / 320 + 40) - 1);
+        const h = ramp * ((40 + 300 * Math.min(1, u * 1.6)) * (0.2 + 0.8 * ridge * ridge) + 14 * fbm(x / 50, z / 50)) - (j === 0 ? 1 : 0);
+        tp.push(x, h, z);
+        const shade = 0.05 + 0.16 * Math.min(1, h / 260) + 0.04 * hash(i, j);
+        tc.push(shade, shade, shade * 1.12);
+        if (j < rings) {
+          const p = j * segments + i, q2 = j * segments + (i + 1) % segments;
+          ti.push(p, p + segments, q2, q2, p + segments, q2 + segments);
+        }
+      }
+    }
+    const terrainGeo = new THREE.BufferGeometry();
+    terrainGeo.setAttribute('position', new THREE.Float32BufferAttribute(tp, 3));
+    terrainGeo.setAttribute('color', new THREE.Float32BufferAttribute(tc, 3));
+    terrainGeo.setIndex(ti);
+    this.scene.add(new THREE.Mesh(terrainGeo, new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.95, side: THREE.DoubleSide })));
+
+    const clearance = (x, z) => Math.min(...pts.map(p => Math.hypot(p.x - x, p.z - z)));
+    const stoneCount = 260;
+    const stones = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 0), rock, stoneCount);
+    for (let n = 0; n < stoneCount;) {
+      const angle = rng() * Math.PI * 2, dist = Math.sqrt(rng()) * (reach + 250);
+      const x = cx + Math.cos(angle) * dist, z = cz + Math.sin(angle) * dist;
+      const size = rng() < 0.85 ? rnd(rng, 0.4, 1.6) : rnd(rng, 2, 5);
+      if (clearance(x, z) < 11 + size) continue;
+      if (this.obstacles.some(o => Math.hypot(o.center[0] - x, o.center[1] - z) < o.reach + size + 2)) continue;
+      stones.setMatrixAt(n++, m.compose(V(x, size * 0.25, z), q.setFromEuler(e.set(rng() * 3, rng() * 3, rng() * 3)),
+                                        V(size, size * rnd(rng, 0.5, 0.8), size)));
+      if (size > 1.2) this.obstacles.push(new Obstacle([[x, z]], size * 0.8, size));
+    }
+    this.scene.add(stones);
+    const free = (x, z, need) => clearance(x, z) > need && !this.obstacles.some(o => Math.hypot(o.center[0] - x, o.center[1] - z) < o.reach + need);
+    const one = V(1, 1, 1), flat = new THREE.Quaternion().setFromAxisAngle(X, Math.PI / 2);
+
+    // Krater mit aufgeworfenem Rand
+    const craterGeo = new THREE.LatheGeometry([[0, 0.03], [0.7, 0.03], [0.9, 0.14], [1, 0.2], [1.35, 0.04], [1.6, 0]].map(([x, y]) => new THREE.Vector2(x, y)), 28);
+    const craters = new THREE.InstancedMesh(craterGeo, new THREE.MeshStandardMaterial({ color: grey(0.2), roughness: 1, side: THREE.DoubleSide }), 45);
+    for (let n = 0, tries = 0; n < 45 && tries < 4000; tries++) {
+      const angle = rng() * Math.PI * 2, dist = Math.sqrt(rng()) * (reach + 230), size = rnd(rng, 4, 20);
+      const x = cx + Math.cos(angle) * dist, z = cz + Math.sin(angle) * dist;
+      if (!free(x, z, size * 1.7 + 9)) continue;
+      craters.setMatrixAt(n++, m.compose(V(x, 0, z), q.identity(), V(size, size * 0.55, size)));
+      craters.count = n;
+    }
+    craters.receiveShadow = true;
+    this.scene.add(craters);
+
+    // Bodenlichter neben den Bodenbahnen und Schwebe-Strahlen unter den Himmelsbahnen
+    const studs = [], pillars = [];
+    for (const t of this.tracks.slice(0, 4)) {
+      for (let i = 0; i < t.samples.length; i += t.sky ? 40 : 10) {
+        const f = t.samples[i];
+        if (t.sky) { if (f.n.y > 0.6) pillars.push(f.p.clone().addScaledVector(f.n, -0.7)); }
+        else if (f.groundLevel) for (const side of [-1, 1]) studs.push(f.p.clone().addScaledVector(f.r, side * (t.halfWidth + 2.2)));
+      }
+    }
+    const studMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.35, 0.3, 0.35), Mat.glow(rgb(0.3, 0.85, 1), 3), studs.length);
+    studs.forEach((p, i) => studMesh.setMatrixAt(i, m.compose(V(p.x, 0.15, p.z), q.identity(), one)));
+    const haze = (color, opacity) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, blending: THREE.AdditiveBlending,
+                                                                 depthWrite: false, side: THREE.DoubleSide, fog: false });
+    const pillarMesh = new THREE.InstancedMesh(unitCylinder, haze(rgb(0.2, 0.6, 1), 0.09), pillars.length);
+    const padMesh = new THREE.InstancedMesh(new THREE.TorusGeometry(3.2, 0.18, 8, 32), Mat.glow(rgb(0.2, 0.7, 1), 3), pillars.length);
+    pillars.forEach((p, i) => {
+      pillarMesh.setMatrixAt(i, beamMatrix(p, V(p.x, 0, p.z), 1.3));
+      padMesh.setMatrixAt(i, m.compose(V(p.x, 0.2, p.z), flat, one));
+    });
+    this.scene.add(studMesh, pillarMesh, padMesh);
+
+    // Bauplätze am Rand der Ebene suchen (zwischen Strecke und Gebirge)
+    const site = (k) => {
+      for (let tries = 0; tries < 300; tries++) {
+        const angle = k * 1.57 + rnd(rng, -0.6, 0.6), dist = reach + rnd(rng, -120, 150);
+        const x = cx + Math.cos(angle) * dist, z = cz + Math.sin(angle) * dist;
+        if (free(x, z, 85)) return [x, z];
+      }
+      return null;
+    };
+
+    // Stationsgebäude mit beleuchteten Fenstern, Blinklichtern und Suchscheinwerfern
+    const windows = canvasTexture(64, 128, (ctx) => {
+      ctx.fillStyle = '#0b0d12'; ctx.fillRect(0, 0, 64, 128);
+      for (let y = 0; y < 16; y++) for (let x = 0; x < 8; x++) {
+        if (rng() > 0.45) continue;
+        ctx.fillStyle = rng() < 0.7 ? '#ffd9a0' : '#9fd8ff';
+        ctx.fillRect(x * 8 + 2, y * 8 + 2, 4, 5);
+      }
+    });
+    windows.magFilter = THREE.NearestFilter;
+    const towerGeo = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
+    const towerMat = new THREE.MeshStandardMaterial({ map: windows, emissiveMap: windows, emissive: grey(1), emissiveIntensity: 1.7, roughness: 0.6, metalness: 0.3 });
+    const towers = [], beacons = [];
+    this.blink = Mat.glow(rgb(1, 0.1, 0.08), 4);
+    this.blinkBase = this.blink.color.clone();
+    this.searchlights = [];
+    const beamGeo = new THREE.ConeGeometry(20, 520, 20, 1, true).rotateX(Math.PI).translate(0, 260, 0);
+    for (let k = 0; k < 3; k++) {
+      const spot = site(k);
+      if (!spot) continue;
+      for (let i = 0; i < 14; i++) {
+        const x = spot[0] + rnd(rng, -55, 55), z = spot[1] + rnd(rng, -55, 55), w = rnd(rng, 9, 20), h = rnd(rng, 18, 95) * (i < 3 ? 1.4 : 1);
+        if (!free(x, z, w)) continue;
+        towers.push(m.compose(V(x, 0, z), q.setFromEuler(e.set(0, rng() * 3, 0)), V(w, h, w)).clone());
+        beacons.push(V(x, h + 1.2, z));
+        this.obstacles.push(new Obstacle([[x, z]], w * 0.62, h));
+      }
+      for (let i = 0; i < 2; i++) {
+        const pivot = new THREE.Group(), beam = new THREE.Mesh(beamGeo, haze(rgb(0.6, 0.8, 1), 0.05));
+        pivot.position.set(spot[0] + rnd(rng, -40, 40), 20, spot[1] + rnd(rng, -40, 40));
+        pivot.add(beam);
+        this.scene.add(pivot);
+        this.searchlights.push({ pivot, beam, speed: rnd(rng, 0.15, 0.3) * (i ? -1 : 1), phase: rng() * 6 });
+      }
+    }
+    const towerMesh = new THREE.InstancedMesh(towerGeo, towerMat, towers.length);
+    towers.forEach((matrix, i) => towerMesh.setMatrixAt(i, matrix));
+    const beaconMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(0.9, 10, 8), this.blink, beacons.length);
+    beacons.forEach((p, i) => beaconMesh.setMatrixAt(i, m.compose(p, q.identity(), one)));
+    this.scene.add(towerMesh, beaconMesh);
+
+    // Startplatz: alle 45 Sekunden hebt hier eine Rakete ab
+    // Raketen, die ständig starten und wieder senkrecht auf ihrem Platz landen
+    const white = Mat.pbr(grey(0.9), { rough: 0.4 }), dark = Mat.pbr(grey(0.25), { metal: 0.7, rough: 0.4 });
+    const soot = Mat.pbr(grey(0.05), { rough: 0.6 });
+    const put = (group, geo, mat, x, y, z) => { const mesh = new THREE.Mesh(geo, mat); mesh.position.set(x, y, z); group.add(mesh); return mesh; };
+    const G = {
+      booster: new THREE.CylinderGeometry(1.9, 1.9, 40, 20), band: new THREE.CylinderGeometry(1.96, 1.96, 4, 20),
+      engines: new THREE.CylinderGeometry(1.96, 2.15, 3, 20), fin: new THREE.BoxGeometry(2.4, 0.25, 1.7),
+      leg: new THREE.BoxGeometry(0.5, 7.5, 1.0).translate(0, 3.75, 0), foot: new THREE.CylinderGeometry(0.8, 0.8, 0.3, 10).translate(0, 7.5, 0),
+      stage: new THREE.CylinderGeometry(1.9, 1.9, 9, 20), fairing: new THREE.CylinderGeometry(2.5, 2.5, 7, 20),
+      neck: new THREE.CylinderGeometry(2.5, 1.9, 1.6, 20), nose: new THREE.SphereGeometry(2.5, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2).scale(1, 2.4, 1),
+      flame: new THREE.ConeGeometry(2.4, 34, 14).rotateX(Math.PI).translate(0, -17, 0), flare: new THREE.SphereGeometry(6, 14, 10),
+      pad: new THREE.CylinderGeometry(13, 14, 1, 36), padRing: new THREE.TorusGeometry(13.4, 0.22, 8, 48).rotateX(Math.PI / 2),
+      mark: new THREE.RingGeometry(5, 6, 40).rotateX(-Math.PI / 2), mast: new THREE.BoxGeometry(1.6, 44, 1.6), arm: new THREE.BoxGeometry(7, 0.8, 0.8),
+      tank: new THREE.SphereGeometry(3.2, 14, 10)
+    };
+    const flameMat = haze(rgb(1, 0.6, 0.2).multiplyScalar(3), 0.8), flareMat = haze(rgb(1, 0.7, 0.35).multiplyScalar(3), 0.7);
+    const padGlow = Mat.glow(rgb(1, 0.6, 0.15), 3), markMat = Mat.pbr(grey(0.85), { rough: 0.7 });
+    for (let n = 0; n < 5; n++) {
+      let pad = null;
+      for (let tries = 0; tries < 500 && !pad; tries++) {
+        const angle = n * 1.2566 + rnd(rng, -0.55, 0.55), dist = reach + rnd(rng, -170, 190);
+        const x = cx + Math.cos(angle) * dist, z = cz + Math.sin(angle) * dist;
+        if (free(x, z, 48)) pad = [x, z];
+      }
+      if (!pad) continue;
+      const rocket = new THREE.Group(), upper = new THREE.Group(), legs = [];
+      put(rocket, G.booster, white, 0, 22, 0);
+      put(rocket, G.band, soot, 0, 44, 0);
+      put(rocket, G.engines, soot, 0, 2.5, 0);
+      for (let k = 0; k < 4; k++) {
+        const a = k * Math.PI / 2 + Math.PI / 4;
+        put(rocket, G.fin, dark, Math.cos(a) * 3, 44.5, Math.sin(a) * 3).rotation.y = -a;
+        const pivot = new THREE.Group();
+        pivot.position.set(Math.cos(a) * 1.95, 5.6, Math.sin(a) * 1.95);
+        pivot.rotation.y = -a;
+        const leg = new THREE.Group();
+        put(leg, G.leg, soot, 0.3, 0, 0); put(leg, G.foot, dark, 0.3, 0, 0);
+        pivot.add(leg); rocket.add(pivot); legs.push(leg);
+      }
+      put(upper, G.stage, white, 0, 50.5, 0);
+      put(upper, G.neck, white, 0, 55.8, 0);
+      put(upper, G.fairing, white, 0, 60.1, 0);
+      put(upper, G.nose, white, 0, 63.6, 0);
+      rocket.add(upper);
+      const flame = put(rocket, G.flame, flameMat, 0, 1, 0), flare = put(rocket, G.flare, flareMat, 0, 0, 0);
+      rocket.position.set(pad[0], 1, pad[1]);
+      const base = new THREE.Group();
+      put(base, G.pad, dark, 0, 0.5, 0).receiveShadow = true;
+      put(base, G.padRing, padGlow, 0, 1.1, 0);
+      put(base, G.mark, markMat, 0, 1.03, 0);
+      put(base, G.mast, dark, 9.5, 22, 0);
+      put(base, G.arm, dark, 6, 40, 0); put(base, G.arm, dark, 6, 26, 0);
+      put(base, G.tank, white, -6, 3.6, 9.5); put(base, G.tank, white, 0.5, 3.6, 11.5);
+      put(base, G.flare, this.blink, 9.5, 44.6, 0).scale.setScalar(0.1);
+      base.position.set(pad[0], 0, pad[1]);
+      base.rotation.y = rng() * 6.28;
+      rocket.traverse(o => { if (o.isMesh && !(o.material instanceof THREE.MeshBasicMaterial)) o.castShadow = true; });
+      this.scene.add(rocket, base);
+      this.obstacles.push(new Obstacle([pad], 14.5, 60));
+      this.rockets.push({ rocket, upper, legs, flame, flare, x: pad[0], z: pad[1], phase: n / 5 + rnd(rng, -0.04, 0.04) });
+    }
+
+    // ---------- Details der Mondbasis ----------
+    const spot = (need, far = 200) => {
+      for (let tries = 0; tries < 300; tries++) {
+        const angle = rng() * Math.PI * 2, dist = Math.sqrt(rng()) * (reach + far);
+        const x = cx + Math.cos(angle) * dist, z = cz + Math.sin(angle) * dist;
+        if (free(x, z, need)) return [x, z];
+      }
+      return null;
+    };
+    const fill = (geo, mat, list, colors) => {
+      const mesh = new THREE.InstancedMesh(geo, mat, Math.max(1, list.length));
+      mesh.count = list.length;
+      list.forEach((mm, i) => { mesh.setMatrixAt(i, mm); if (colors) mesh.setColorAt(i, colors[i]); });
+      mesh.castShadow = mesh.receiveShadow = true;
+      this.scene.add(mesh);
+      return mesh;
+    };
+    const mat4 = (x, y, z, sx, sy, sz, ry = 0, rx = 0) => new THREE.Matrix4().compose(V(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, 0, 'YXZ')), V(sx, sy, sz));
+    const box = new THREE.BoxGeometry(1, 1, 1), rod = new THREE.CylinderGeometry(1, 1, 1, 10);
+
+    // Solarfelder
+    const panels = [], posts = [];
+    for (let n = 0; n < 6; n++) {
+      const c = spot(30); if (!c) continue;
+      const ry = rng() * 6.28, cos = Math.cos(ry), sin = Math.sin(ry);
+      for (let i = -2; i <= 2; i++) for (let j = -1.5; j <= 1.5; j++) {
+        const lx = i * 7.5, lz = j * 6, x = c[0] + lx * cos + lz * sin, z = c[1] - lx * sin + lz * cos;
+        panels.push(mat4(x, 2.6, z, 6.4, 0.16, 3.6, ry, 0.55));
+        posts.push(mat4(x, 1.2, z, 0.18, 2.4, 0.18));
+      }
+      this.obstacles.push(new Obstacle([c], 21, 5));
+    }
+    fill(box, Mat.pbr(rgb(0.04, 0.1, 0.32), { metal: 0.85, rough: 0.18 }), panels);
+    fill(rod, dark, posts);
+
+    // Frachtlager mit bunten Containern
+    const crates = [], crateColors = [], palette = [rgb(0.8, 0.25, 0.1), rgb(0.1, 0.4, 0.75), rgb(0.85, 0.7, 0.15), grey(0.75), rgb(0.15, 0.55, 0.35)];
+    for (let n = 0; n < 7; n++) {
+      const c = spot(20); if (!c) continue;
+      const ry = rng() * 6.28, cos = Math.cos(ry), sin = Math.sin(ry);
+      for (let i = 0; i < 12; i++) {
+        const lx = (i % 3 - 1) * 3.2 + rnd(rng, -0.3, 0.3), lz = (Math.floor(i / 3) % 2 - 0.5) * 7.5, level = i < 6 ? 0 : 1;
+        if (level && rng() < 0.4) continue;
+        crates.push(mat4(c[0] + lx * cos + lz * sin, 1.3 + level * 2.6, c[1] - lx * sin + lz * cos, 2.6, 2.6, 6.4, ry));
+        crateColors.push(palette[Math.floor(rng() * palette.length)]);
+      }
+      this.obstacles.push(new Obstacle([c], 9, 6));
+    }
+    fill(box, new THREE.MeshStandardMaterial({ roughness: 0.6, metalness: 0.3 }), crates, crateColors);
+
+    // Funkmasten mit Querstreben und Blinklicht
+    const masts = [], bars = [], lamps = [];
+    for (let n = 0; n < 14; n++) {
+      const c = spot(10, 240); if (!c) continue;
+      const hgt = rnd(rng, 35, 75);
+      masts.push(mat4(c[0], hgt / 2, c[1], 0.35, hgt, 0.35));
+      for (let k = 1; k <= 4; k++) bars.push(mat4(c[0], hgt * (0.45 + k * 0.12), c[1], 5 - k * 0.8, 0.2, 0.2, k * 0.8));
+      lamps.push(mat4(c[0], hgt + 0.5, c[1], 0.7, 0.7, 0.7));
+      this.obstacles.push(new Obstacle([c], 1.2, hgt));
+    }
+    fill(rod, dark, masts); fill(box, dark, bars);
+    fill(new THREE.SphereGeometry(1, 8, 6), this.blink, lamps).castShadow = false;
+
+    // Rohrleitungen auf Stützen
+    const pipes = [], stands = [];
+    for (let n = 0, tries = 0; n < 9 && tries < 400; tries++) {
+      const c = spot(8); if (!c) break;
+      const ry = rng() * Math.PI, len = rnd(rng, 60, 170), dx = Math.sin(ry), dz = Math.cos(ry), circles = [];
+      let ok = true;
+      for (let d = -len / 2; d <= len / 2 && ok; d += 5) ok = free(c[0] + dx * d, c[1] + dz * d, 6);
+      if (!ok) continue;
+      pipes.push(mat4(c[0], 1.5, c[1], 0.55, len, 0.55, ry, Math.PI / 2));
+      pipes.push(mat4(c[0] + dz * 1.4, 1.2, c[1] - dx * 1.4, 0.3, len, 0.3, ry, Math.PI / 2));
+      for (let d = -len / 2; d <= len / 2; d += 2.5) circles.push([c[0] + dx * d, c[1] + dz * d]);
+      for (let d = -len / 2 + 2; d <= len / 2; d += 12) stands.push(mat4(c[0] + dx * d + dz * 0.7, 0.5, c[1] + dz * d - dx * 0.7, 0.4, 1, 2.6, ry + Math.PI / 2));
+      this.obstacles.push(new Obstacle(circles, 1.6, 2.4));
+      n++;
+    }
+    fill(rod, Mat.pbr(grey(0.7), { metal: 0.9, rough: 0.3 }), pipes); fill(box, dark, stands);
+
+    // Siedlungen am Fuß der Berge (außerhalb der befahrbaren Ebene)
+    const huts = [];
+    for (let n = 0; n < 26; n++) {
+      const angle = rng() * Math.PI * 2, dist = this.land.r + rnd(rng, 15, 55);
+      const hx = cx + Math.cos(angle) * dist, hz = cz + Math.sin(angle) * dist;
+      for (let i = 0; i < 9; i++) {
+        const hgt = rnd(rng, 9, 30);
+        huts.push(mat4(hx + rnd(rng, -32, 32), -3, hz + rnd(rng, -32, 32), rnd(rng, 5, 11), hgt, rnd(rng, 5, 11), rng() * 3));
+      }
+    }
+    fill(towerGeo, towerMat, huts).castShadow = false;
+
+    // Tribüne mit Publikum, Flutlicht und Leuchtschrift an der Startgeraden
+    {
+      const f = this.tracks[0].frame(62), half = this.tracks[0].halfWidth;
+      const side = [1, -1].find(sd => free(f.p.x + f.r.x * sd * (half + 16), f.p.z + f.r.z * sd * (half + 16), 4));
+      if (side) {
+        const stand = new THREE.Group(), out = V(f.r.x * side, 0, f.r.z * side).normalize();
+        stand.position.set(f.p.x + out.x * (half + 9), 0, f.p.z + out.z * (half + 9));
+        // lokale +x-Achse zeigt von der Strecke weg, lokale z-Achse längs der Strecke
+        stand.rotation.y = Math.atan2(-out.z, out.x);
+        const crowd = canvasTexture(256, 32, (ctx) => {
+          ctx.fillStyle = '#05060a'; ctx.fillRect(0, 0, 256, 32);
+          for (let i = 0; i < 2600; i++) {
+            ctx.fillStyle = `hsl(${Math.floor(rng() * 360)}, ${40 + rng() * 50}%, ${35 + rng() * 40}%)`;
+            ctx.fillRect(Math.floor(rng() * 256), Math.floor(rng() * 32), 1, 1);
+          }
+        });
+        crowd.magFilter = THREE.NearestFilter;
+        for (let i = 0; i < 6; i++) put(stand, box, dark, 1.5 + i * 2.4, (i + 1) * 0.65, 0).scale.set(2.4, (i + 1) * 1.3, 64);
+        const people = new THREE.Mesh(new THREE.PlaneGeometry(64, 16.5), new THREE.MeshBasicMaterial({ map: crowd, side: THREE.DoubleSide }));
+        people.rotation.set(0, -Math.PI / 2, 0); people.rotateX(-Math.atan2(14.4, 7.8));
+        people.position.set(7.5, 5.2, 0);
+        stand.add(people);
+        put(stand, box, dark, 8, 15, 0).scale.set(18, 0.5, 66);
+        for (const z of [-32, 0, 32]) put(stand, box, dark, 15.5, 7.5, z).scale.set(0.7, 15, 0.7);
+        for (const z of [-30, 30]) {
+          put(stand, box, dark, -3, 13, z).scale.set(0.6, 26, 0.6);
+          put(stand, box, Mat.glow(grey(1), 2.2), -3, 26.5, z).scale.set(0.5, 2.4, 5);
+        }
+        const sign = canvasTexture(512, 96, (ctx) => {
+          ctx.fillStyle = '#000'; ctx.fillRect(0, 0, 512, 96);
+          ctx.font = 'bold 60px Helvetica, Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillStyle = '#5cd0ff'; ctx.fillText('GOATSTER  GP', 256, 50);
+        });
+        const board = new THREE.Mesh(new THREE.PlaneGeometry(44, 8.25), new THREE.MeshBasicMaterial({ map: sign, color: grey(1.6), side: THREE.DoubleSide }));
+        board.rotation.y = -Math.PI / 2; board.position.set(8, 20.5, 0);
+        stand.add(board);
+        this.scene.add(stand);
+        const along = V(f.t.x, 0, f.t.z).normalize(), mid = V(stand.position.x + out.x * 8, 0, stand.position.z + out.z * 8);
+        this.obstacles.push(new Obstacle([-24, -12, 0, 12, 24].map(d => [mid.x + along.x * d, mid.z + along.z * d]), 9.5, 16));
+      }
+    }
+
+    // Mondfahrzeuge drehen ihre Runden
+    for (let n = 0; n < 7; n++) {
+      const radius = rnd(rng, 12, 26), c = spot(radius + 8); if (!c) continue;
+      const rover = new THREE.Group();
+      put(rover, box, white, 0, 1.25, 0).scale.set(2.2, 0.9, 3.4);
+      for (const x of [-1.25, 1.25]) put(rover, box, soot, x, 0.5, 0).scale.set(0.55, 1, 3.8);
+      put(rover, rod, dark, 0.6, 2.6, 1).scale.set(0.06, 1.9, 0.06);
+      put(rover, box, Mat.glow(rgb(1, 0.9, 0.6), 4), 0, 1.3, -1.75).scale.set(1.4, 0.25, 0.1);
+      put(rover, box, this.blink, 0.6, 3.6, 1).scale.setScalar(0.3);
+      rover.traverse(o => { if (o.isMesh && !(o.material instanceof THREE.MeshBasicMaterial)) o.castShadow = true; });
+      this.scene.add(rover);
+      this.rovers.push({ mesh: rover, x: c[0], z: c[1], r: radius, speed: rnd(rng, 4, 9) / radius * (n % 2 ? 1 : -1), phase: rng() * 6 });
+      this.obstacles.push(new Obstacle([c], 1.5, 0.1));
+    }
+
+    // Raumgleiter kreisen über der Basis
+    this.ships = [];
+    for (let i = 0; i < 6; i++) {
+      const mesh = new THREE.Group();
+      addMesh(mesh, new THREE.BoxGeometry(2, 1.6, 12), dark, 0, 0, 0);
+      addMesh(mesh, new THREE.BoxGeometry(14, 0.4, 4), dark, 0, 0, 2);
+      addMesh(mesh, new THREE.SphereGeometry(1, 8, 6), Mat.glow(i % 2 ? rgb(0.3, 0.8, 1) : rgb(1, 0.5, 0.15), 5), 0, 0, 6.5);
+      addMesh(mesh, new THREE.SphereGeometry(0.6, 8, 6), this.blink, 0, -1.2, 0);
+      this.scene.add(mesh);
+      this.ships.push({ mesh, r: rnd(rng, 0.35, 1.1) * reach, h: rnd(rng, 110, 260), speed: rnd(rng, 0.03, 0.07) * (i % 2 ? 1 : -1), phase: rng() * 6 });
+    }
+
+    // bläulicher Schein am Horizont (Erdlicht), wandert mit der Kamera mit
+    const glowTex = canvasTexture(4, 256, (ctx) => {
+      const g = ctx.createLinearGradient(0, 0, 0, 256);
+      g.addColorStop(0, 'rgba(0,0,0,1)'); g.addColorStop(0.55, 'rgb(10,18,45)'); g.addColorStop(1, 'rgb(40,75,150)');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, 4, 256);
+    });
+    const horizon = new THREE.Mesh(new THREE.CylinderGeometry(3200, 3200, 900, 48, 1, true),
+      new THREE.MeshBasicMaterial({ map: glowTex, side: THREE.BackSide, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, fog: false }));
+    horizon.position.y = 440;
+    this.stars.add(horizon);
+  }
+
+  // bewegte Umgebung: Scheinwerfer, Gleiter, Blinklichter, Raketenstart
+  animateWorld() {
+    const t = this.time, { x: cx, z: cz } = this.land;
+    for (const s of this.searchlights) {
+      s.pivot.rotation.y = t * s.speed + s.phase;
+      s.beam.rotation.z = 0.5 + 0.2 * Math.sin(t * 0.3 + s.phase);
+    }
+    for (const s of this.ships) {
+      const a = t * s.speed + s.phase;
+      s.mesh.position.set(cx + Math.cos(a) * s.r, s.h, cz + Math.sin(a) * s.r);
+      s.mesh.rotation.y = -a + (s.speed > 0 ? Math.PI : 0);
+    }
+    this.blink.color.copy(this.blinkBase).multiplyScalar(Math.sin(t * 4) > 0.5 ? 1 : 0.06);
+    for (const s of this.rovers) {
+      const a = t * s.speed + s.phase;
+      s.mesh.position.set(s.x + Math.cos(a) * s.r, 0, s.z + Math.sin(a) * s.r);
+      s.mesh.rotation.y = (s.speed > 0 ? Math.PI : 0) - a;
+    }
+    // Raketen: zünden, steigen, Oberstufe abtrennen, zurückfallen, Landeschub, Beine raus, aufsetzen
+    const period = 30, top = 450;
+    for (const r of this.rockets) {
+      const k = (t + r.phase * period) % period;
+      let y = 0, burn = 0, legs = 1, upper = false, visible = true;
+      if (k < 4) { burn = clamp((k - 2) / 2, 0, 1); legs = clamp(1 - k / 1.5, 0, 1); upper = true; }
+      else if (k < 13) { y = top * ((k - 4) / 9) ** 2; burn = 1; legs = 0; upper = true; }
+      else if (k < 15) visible = false;
+      else if (k < 26) {
+        const u = (k - 15) / 11;
+        y = top * (1 - u) ** 2.4; burn = u > 0.45 ? 1 : 0; legs = clamp((u - 0.62) / 0.2, 0, 1);
+      }
+      r.rocket.visible = visible;
+      r.rocket.position.y = 1 + y;
+      r.upper.visible = upper;
+      for (const leg of r.legs) leg.rotation.z = -legs * 2.2;
+      r.flame.visible = r.flare.visible = burn > 0;
+      r.flame.scale.set(1, burn * (0.75 + 0.45 * Math.random()), 1);
+      r.flare.scale.setScalar((0.35 + 0.65 * burn) * (0.85 + 0.3 * Math.random()));
+      if (burn > 0 && visible && y < 260) {
+        // Abgasstrahl, am Boden als Staubwolke zur Seite
+        for (let i = 0; i < 2; i++) {
+          const a = Math.random() * 6.283, near = y < 14;
+          this.particles.emit(V(r.x + Math.cos(a) * 1.2, near ? 1.6 : y - 2, r.z + Math.sin(a) * 1.2),
+                              near ? V(Math.cos(a) * 26, 3 + Math.random() * 5, Math.sin(a) * 26) : V(Math.cos(a) * 5, -34, Math.sin(a) * 5),
+                              0.9, 2.2);
+        }
+      }
+    }
+  }
+
   placeParkedCars() {
     const rng = seededRandom(42);
     const kinds = [0, 1, 2, 3, 4, 'truck', 'truck'];
@@ -1812,6 +2426,11 @@ class Game {
     const dt = Math.min((now - this.last) / 1000, 1 / 30);
     this.last = now;
     this.step(dt);
+    this.time += dt;
+    for (const g of this.pulsing) g.material.color.copy(g.base).multiplyScalar(0.7 + 0.3 * Math.sin(this.time * 3 + g.phase));
+    this.turboTexture.offset.y = -(this.time * 1.5 % 1);
+    for (const s of this.spinners) s.rotation.y += dt * 0.35;
+    this.animateWorld();
     this.particles.update(dt);
     this.wind.update(dt);
     const scale = this.renderer.domElement.height / (2 * Math.tan(this.camera.fov * DEG / 2));
@@ -1851,7 +2470,9 @@ class Game {
     let c = this.readControls();
     if (this.race.controlsLocked) c = { gas: false, brake: false, steerTarget: 0, jetsHeld: false, jump: false, flip: false, drift: false };
     this.controls = c;
-    this.steer += (c.steerTarget - this.steer) * Math.min(1, dt * 10);
+    // Lenkung: weich einlenken, aber schnell zurück zur Mitte und beim Gegenlenken
+    const steerRate = c.steerTarget === 0 || c.steerTarget * this.steer < 0 ? 14 : 8;
+    this.steer += (c.steerTarget - this.steer) * Math.min(1, dt * steerRate);
     this.drifting = false;
     this.autoSuction = false;
     this.corneringSuction = false;
@@ -1860,6 +2481,10 @@ class Game {
     this.jumpBurst = Math.max(0, this.jumpBurst - dt);
     this.warning = false;
 
+    if (this.mode !== 'air') {
+      this.jetFuel = Math.min(1, this.jetFuel + dt * 1.5); this.jetsActive = false;
+      this.inFlightZone = !!this.flightZoneAt(this.carPosition);
+    }
     if (this.mode === 'ground') this.stepGround(c, dt);
     else if (this.mode === 'track') this.stepTrack(c, dt);
     else this.stepAir(c, dt);
@@ -1869,27 +2494,83 @@ class Game {
 
     let pitchTarget = 0;
     if (this.mode !== 'air') {
-      if (c.gas && this.speed >= 0) pitchTarget = 0.025;
-      else if (c.brake && this.speed > 1) pitchTarget = -0.03;
+      if (c.gas && this.speed >= 0) pitchTarget = 0.012 + 0.03 * Math.max(0, 1 - this.speed / this.maxSpeed) + (this.boostTime > 0 ? 0.02 : 0);
+      else if (c.brake && this.speed > 1) pitchTarget = -0.045;
     }
     this.pitch += (pitchTarget - this.pitch) * Math.min(1, dt * 6);
+    // Karosserie legt sich in der Kurve nach außen
+    const lean = this.mode === 'air' ? 0 : -this.steer * Math.min(1, Math.abs(this.speed) / 45) * (this.drifting ? 0.08 : 0.045);
+    this.roll += (lean - this.roll) * Math.min(1, dt * 7);
 
     const car = this.car;
     car.root.position.copy(this.carPosition);
     car.root.quaternion.copy(this.carOrientation);
-    car.body.rotation.set(this.pitch, 0, 0);
+    car.body.rotation.set(this.pitch, 0, this.roll);
     car.updateWheels(this.speed, this.steer, dt);
     // seitliche Düsen: in der Luft paarweise zum Drehen, beim Driften nur auf der Seite, die schiebt
     const yawJets = this.mode === 'air' && Math.abs(this.steer) > 0.15 ? Math.sign(this.steer) : 0;
     const driftSide = this.drifting ? this.driftDir : 0;
-    car.setJets(this.mode === 'air' && (c.jetsHeld || this.jumpBurst > 0), (c.gas && this.speed >= 0) || this.boostTime > 0,
+    car.setJets(this.mode === 'air' && (this.jetsActive || this.jumpBurst > 0), (c.gas && this.speed >= 0) || this.boostTime > 0,
                 this.flipRemaining > 0, yawJets, driftSide, this.corneringSuction);
     car.setSuction(this.autoSuction || this.corneringSuction);
     this.wallFlash = Math.max(0, this.wallFlash - dt);
     car.root.updateMatrixWorld(true);
     car.emitJets(dt);
 
+    this.updateGhost();
     this.updateCamera(dt);
+  }
+
+  // Flugzone = Streifen von 45 m um die Verbindung zweier Bahnenden
+  flightZoneAt(p) {
+    for (const z of this.flightZones) {
+      const dx = z.b.x - z.a.x, dz = z.b.z - z.a.z;
+      const k = clamp(((p.x - z.a.x) * dx + (p.z - z.a.z) * dz) / (dx * dx + dz * dz), 0, 1);
+      if (Math.hypot(p.x - z.a.x - dx * k, p.z - z.a.z - dz * k) < 45) return z;
+    }
+    return null;
+  }
+
+  makeGhostCar() {
+    const model = new CarModel(this.particles, this.wind);
+    const material = new THREE.MeshBasicMaterial({ color: rgb(0.3, 0.8, 1), transparent: true, opacity: 0.32, depthWrite: false });
+    const drop = [];
+    model.root.traverse(o => {
+      if (o.isLight || o.isPoints) drop.push(o);
+      else if (o.isMesh) { o.material = material; o.castShadow = false; }
+    });
+    drop.forEach(o => o.removeFromParent());
+    if (model.suctionGlow) model.suctionGlow.visible = false;
+    model.root.visible = false;
+    this.scene.add(model.root);
+    return model;
+  }
+
+  // Geisterfahrer: zeichnet jede Runde auf und spielt die bisher schnellste als durchsichtiges Auto ab
+  updateGhost() {
+    const r = this.race;
+    if (r.phase === 'countdown') { this.ghostRec = []; this.ghostLapCount = 0; }
+    if (r.lapTimes.length > this.ghostLapCount) {
+      const time = r.lapTimes[r.lapTimes.length - 1];
+      if (this.ghostRec.length > 10 && (!this.ghost || time < this.ghost.time)) this.ghost = { time, samples: this.ghostRec };
+      this.ghostRec = []; this.ghostLapCount = r.lapTimes.length; this.ghostIndex = 0;
+    }
+    if (r.phase !== 'running') { if (this.ghostCar) this.ghostCar.root.visible = false; return; }
+    const t = r.currentLapTime, rec = this.ghostRec;
+    if (!rec.length || t - rec[rec.length - 1].t >= 0.05)
+      rec.push({ t, p: this.carPosition.clone(), q: this.carOrientation.clone() });
+    if (!this.ghost) return;
+    this.ghostCar ??= this.makeGhostCar();
+    const samples = this.ghost.samples, node = this.ghostCar.root;
+    let i = this.ghostIndex;
+    if (i >= samples.length - 1 || samples[i].t > t) i = 0;
+    while (i < samples.length - 2 && samples[i + 1].t <= t) i++;
+    this.ghostIndex = i;
+    const a = samples[i], b = samples[i + 1], k = clamp((t - a.t) / Math.max(1e-3, b.t - a.t), 0, 1);
+    node.position.lerpVectors(a.p, b.p, k);
+    node.quaternion.slerpQuaternions(a.q, b.q, k);
+    // nicht anzeigen, solange er genau im eigenen Auto steckt
+    node.visible = node.position.distanceTo(this.carPosition) > 2.5;
   }
 
   hudState() {
@@ -1901,6 +2582,7 @@ class Game {
       phase: r.phase, countdown: r.countdown, raceTime: r.raceTime, lap: r.lap, laps: r.laps,
       nextTarget: r.nextTarget, lapTimes: r.lapTimes, bestTotal: r.bestTotal, bestLap: r.bestLap,
       message: r.message, messageAge: r.messageAge, newRecord: r.newRecord, overlayHidden: this.overlayHidden,
+      jet: this.jetFuel, flightZone: this.inFlightZone, ghost: this.ghost ? this.ghost.time : 0,
       car: { x: this.carPosition.x, z: this.carPosition.z, yaw: this.headingYaw() }
     };
   }
@@ -1930,17 +2612,24 @@ class Game {
   }
 
   // Wie schnell sich das Auto drehen kann: bei Tempo begrenzt (Querbeschleunigung), beim Driften deutlich mehr
-  steeringRate(drifting) {
+  // bank: Querneigung der Bahn (0 = flach) – Steilkurven tragen mehr Tempo
+  steeringRate(drifting, c, bank = 0) {
     const v = Math.abs(this.speed);
     const grip = Math.min(1, v / 5);
     const direction = this.speed >= 0 ? 1 : -1;
+    // Haftung: Gas wegnehmen oder bremsen lässt das Auto williger einlenken
+    let lateral = 46 * (1 + 1.6 * bank);
+    if (!c.gas) lateral *= 1.25;
+    if (c.brake) lateral *= 1.15;
+    const normal = this.steer * Math.min(2.4, lateral / Math.max(v, 1)) * grip * direction;
     if (drifting) {
       // Drift wie bei Mario Kart: Richtung steht fest; in die Kurve lenken = enger, dagegen = weiter.
       // Bis 4,3 rad/s – genug, um jede Kurve auch mit Höchstgeschwindigkeit zu schaffen.
       const turn = this.driftDir * (0.55 + 0.45 * this.steer * this.driftDir);
-      return turn * 4.3 * grip * direction;
+      // weicher Übergang in den Drift statt eines Rucks
+      return normal + (turn * 4.3 * grip * direction - normal) * this.driftBlend;
     }
-    return this.steer * Math.min(2.1, 36 / Math.max(v, 1)) * grip * direction;
+    return normal;
   }
 
   // Drift: Taste halten + lenken. Seitliche Düsen drehen das Auto quer; loslassen gibt einen Boost.
@@ -1960,6 +2649,7 @@ class Game {
       }
       this.driftCharge = 0;
     }
+    this.driftBlend = drifting ? Math.min(1, this.driftBlend + dt * 5) : 0;
     this.drifting = drifting;
     return drifting;
   }
@@ -1969,7 +2659,7 @@ class Game {
     const grip = drifting ? 6.5 : 12;
     move += (heading - move) * Math.min(1, grip * dt);
     const slip = heading - move;
-    this.speed -= this.speed * Math.abs(Math.sin(slip)) * (drifting ? 0.1 : 1.2) * dt;   // Reifen radieren
+    this.speed -= this.speed * Math.abs(Math.sin(slip)) * (drifting ? 0.1 : 0.8) * dt;   // Reifen radieren
     if (this.boostTime > 0) this.speed = Math.min(this.speed + 25 * dt, this.maxSpeed + 12);
     return move;
   }
@@ -1977,12 +2667,18 @@ class Game {
   stepGround(c, dt) {
     this.applyThrottle(c, dt);
     const drifting = this.updateDrift(c, dt);
-    this.yaw += this.steeringRate(drifting) * dt;
+    this.yaw += this.steeringRate(drifting, c) * dt;
     this.moveYaw = this.slide(this.yaw, this.moveYaw, drifting, dt);
     const fx = -Math.sin(this.yaw), fz = -Math.cos(this.yaw);
     const mx = -Math.sin(this.moveYaw), mz = -Math.cos(this.moveYaw);
     this.groundX = clamp(this.groundX + mx * this.speed * dt, -this.worldLimit, this.worldLimit);
     this.groundZ = clamp(this.groundZ + mz * this.speed * dt, -this.worldLimit, this.worldLimit);
+    const edge = Math.hypot(this.groundX - this.land.x, this.groundZ - this.land.z) / this.land.r;
+    if (edge > 1) {   // das Gebirge begrenzt die Ebene
+      this.groundX = this.land.x + (this.groundX - this.land.x) / edge;
+      this.groundZ = this.land.z + (this.groundZ - this.land.z) / edge;
+      this.speed *= 1 - Math.min(1, 3 * dt);
+    }
 
     for (const push of [this.collide(this.groundX, this.groundZ, fx, fz, 0), this.collideWithTrackSlabs(this.groundX, this.groundZ)]) {
       if (!push) continue;
@@ -2013,7 +2709,7 @@ class Game {
     this.applyThrottle(c, dt, f.groundLevel);
     this.speed += -this.gravity * moveDir.y * dt;   // bergauf langsamer, bergab schneller
     const drifting = this.updateDrift(c, dt);
-    this.trackPsi += this.steeringRate(drifting) * dt;
+    this.trackPsi += this.steeringRate(drifting, c, Math.abs(f.r.y)) * dt;
     this.trackMove = this.slide(this.trackPsi, this.trackMove, drifting, dt);
     const ds = this.speed * Math.cos(this.trackMove) * dt;
     this.trackS += ds;
@@ -2040,11 +2736,19 @@ class Game {
       const outward = -Math.sin(this.trackMove) * side;
       if (outward > 0) {
         const hit = Math.abs(Math.sin(this.trackMove));
-        this.speed *= 1 - 0.7 * hit;
+        this.speed *= 1 - 0.45 * hit;
         this.trackMove = -this.trackMove * 0.25;   // leicht von der Wand weg
         this.trackPsi *= 0.5;
         if (hit * Math.abs(this.speed) > 6) this.wallFlash = 0.25;
       }
+    }
+
+    // Turbo-Felder auf der Bahn
+    for (const pad of this.boostPads) {
+      if (pad.track !== this.trackIndex || this.speed < 5 || this.trackS < pad.s || this.trackS > pad.s + pad.length ||
+          Math.abs(this.trackD - pad.d) > pad.half + 0.8) continue;
+      if (this.boostTime <= 0) this.race.show('TURBO!');
+      this.boostTime = Math.max(this.boostTime, 0.9);
     }
 
     // geparkte Autos (auch auf den Himmelsbahnen)
@@ -2113,7 +2817,17 @@ class Game {
     const up = V(0, 1, 0).applyQuaternion(this.airOrientation);
     const forward = V(0, 0, -1).applyQuaternion(this.airOrientation);
     this.airVelocity.y -= this.gravity * dt;
-    if (c.jetsHeld) this.airVelocity.y += this.hoverThrust * dt;   // Düsen drücken immer senkrecht nach oben
+    // Düsen drücken senkrecht nach oben. Frei fliegen geht nur in den Flugzonen über den Lücken,
+    // sonst reicht der Tank nur für einen Hüpfer (etwa über ein Auto)
+    const zone = this.flightZoneAt(this.airCenter);
+    this.inFlightZone = !!zone;
+    if (zone) this.jetFuel = 1;
+    this.jetsActive = c.jetsHeld && (zone ? this.airCenter.y < zone.top : this.jetFuel > 0);
+    if (zone && this.airCenter.y > zone.top && this.airVelocity.y > 0) this.airVelocity.y *= Math.exp(-5 * dt);   // Decke der Flugzone
+    if (this.jetsActive) {
+      this.airVelocity.y += this.hoverThrust * dt;
+      if (!zone) this.jetFuel = Math.max(0, this.jetFuel - dt / this.jetCapacity);
+    }
     const flat = V(forward.x, 0, forward.z);
     if (flat.lengthSq() > 0.01) flat.normalize();
     // agil: Gas schiebt kräftig nach vorne, Bremse bremst in der Luft stark ab
@@ -2302,16 +3016,28 @@ class Game {
   // ---------------- Kamera ----------------
   updateCamera(dt) {
     const forward = V(0, 0, -1).applyQuaternion(this.carOrientation);
+    const right = V(1, 0, 0).applyQuaternion(this.carOrientation);
+    const fast = Math.min(Math.abs(this.speed) / this.maxSpeed, 1.1);
+    // Kamera schaut in die Kurve, schwenkt nach außen und neigt sich leicht mit
+    const lookTarget = this.mode === 'air' ? 0 : -this.steer * (this.drifting ? 1 : 0.6) * Math.min(1, fast * 4);
+    this.cameraLook += (lookTarget - this.cameraLook) * (1 - Math.exp(-3.5 * dt));
+    this.cameraBoost += ((this.boostTime > 0 ? 1 : 0) - this.cameraBoost) * (1 - Math.exp(-5 * dt));
     const desiredUp = this.mode === 'air' ? V(0, 1, 0) : V(0, 1, 0).applyQuaternion(this.carOrientation);
+    desiredUp.addScaledVector(right, this.cameraLook * 0.06).normalize();
     this.cameraUp.lerp(desiredUp, 1 - Math.exp(-4 * dt)).normalize();
-    const target = this.carPosition.clone().addScaledVector(forward, -9).addScaledVector(this.cameraUp, 3);
+    const target = this.carPosition.clone().addScaledVector(forward, -8.5).addScaledVector(this.cameraUp, 3)
+                       .addScaledVector(right, -this.cameraLook * 1.8);
     target.y = Math.max(target.y, 0.4);
     this.cameraPosition.lerp(target, 1 - Math.exp(-6 * dt));
     this.cameraPosition.y = Math.max(this.cameraPosition.y, 0.4);
     this.camera.position.copy(this.cameraPosition);
+    // leichtes Zittern bei sehr hohem Tempo und im Boost
+    const shake = this.mode === 'air' ? 0 : 0.1 * Math.max(0, fast - 0.8) + 0.035 * this.cameraBoost;
+    if (shake > 0) this.camera.position.add(V(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(shake));
     this.camera.up.copy(this.cameraUp);
-    this.camera.lookAt(this.carPosition.clone().addScaledVector(this.cameraUp, 1).addScaledVector(forward, 3));
-    this.camera.fov = 62 + Math.min(Math.abs(this.speed), 112) * 0.15;
+    this.camera.lookAt(this.carPosition.clone().addScaledVector(this.cameraUp, 1).addScaledVector(forward, 3 + 5 * fast)
+                           .addScaledVector(right, this.cameraLook * 3.2));
+    this.camera.fov = 62 + Math.min(Math.abs(this.speed), 112) * 0.15 + 7 * this.cameraBoost;
     this.camera.updateProjectionMatrix();
 
     this.moon.position.copy(this.carPosition).add(V(20, 50, 25));
